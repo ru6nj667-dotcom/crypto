@@ -21,7 +21,7 @@ async function tg(method, body) {
     return await r.json();
   } catch (e) { console.log("TG error", e.message); return { ok: false, result: [] }; }
 }
-const send = text => st.chat ? tg("sendMessage", { chat_id: st.chat, text }) : null;
+const send = async text => { if (!st.chat) { console.log("⚠️ 還不知道要傳給誰：請在 Telegram 對機器人傳 /start"); return null; } const r = await tg("sendMessage", { chat_id: st.chat, text }); if (!r.ok) console.log("❌ 傳訊息失敗：", r.description || r); return r; };
 
 // ---- 假的瀏覽器環境，讓網頁程式可以在伺服器上跑 ----
 const store = st.ls;
@@ -53,7 +53,11 @@ const HELP = `指令：
 /status 現在推薦
 提醒：大約每 5～15 分鐘檢查一次，停損一定要在交易所掛好。`;
 const cmds = [];
+if (!TOKEN) console.log("❌ 沒有讀到 TG_TOKEN：請到 Settings → Secrets → Actions 新增，名稱要完全是 TG_TOKEN");
+const me = TOKEN ? await tg("getMe", {}) : { ok: false };
+if (TOKEN) console.log(me.ok ? `✅ TG_TOKEN 正確，機器人是 @${me.result?.username || "?"}` : `❌ TG_TOKEN 錯誤（${me.description || "無法連線"}）：請到 BotFather 重新複製代碼，再到 GitHub Secrets 更新 TG_TOKEN`);
 const up = await tg("getUpdates", { offset: st.offset + 1, timeout: 0 });
+console.log(`收到 Telegram 訊息 ${(up.result || []).length} 則；已知聊天室：${st.chat ? "有" : "沒有"}`);
 for (const u of up.result || []) {
   st.offset = Math.max(st.offset, u.update_id);
   const m = u.message; if (!m || !m.text) continue;
@@ -74,6 +78,7 @@ const G = s => vm.runInThisContext(s);
 let waited = 0;
 while (waited < 240000) { await sleep(2000); waited += 2000; if (G("OPT!==null&&!optBusy&&!loading")) break; if (G("COINS.length===0&&!loading") && waited > 30000) break; }
 const ok = G("OPT!==null");
+console.log(`行情：${G("COINS.length")} 個幣，資料來源 ${G("REST")}，AI 學習${ok ? "完成" : "未完成"}，規則${G("ACTIVE") ? "通過驗證" : "未通過驗證"}`);
 if (!ok) {
   const k = "fail|" + new Date().toISOString().slice(0, 13);
   if (!st.sent[k]) { st.sent[k] = Date.now(); await send(`⚠️ 雲端這次連不到行情或學習沒完成（${G('document.getElementById("conn").textContent')}），下次會再試。`); }
