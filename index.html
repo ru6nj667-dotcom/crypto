@@ -101,7 +101,7 @@ function backtest(k,sg,p){ // 下一根開盤進場、扣手續費0.05%x2與滑�
   if(ex===null){if(j>=k.length)continue;ex=k[j-1].c}
   ex*=1-S*g.s;tr.push({R:((ex-e)*g.s-e*F*2)/dist,time:g.time,s:g.s,f:g.f});last=j}
  return{...summ(tr.map(x=>x.R)),tr}}
-function summ(rs){return rs.length?{n:rs.length,win:rs.filter(r=>r>0).length/rs.length*100,avg:rs.reduce((a,b)=>a+b,0)/rs.length}:{n:0,win:0,avg:0}}
+function summ(rs){if(!rs.length)return{n:0,win:0,avg:0,sd:0};const avg=rs.reduce((a,b)=>a+b,0)/rs.length,sd=Math.sqrt(rs.reduce((a,b)=>a+(b-avg)**2,0)/rs.length);return{n:rs.length,win:rs.filter(r=>r>0).length/rs.length*100,avg,sd}}
 function btcRel(time,s){const b=A.BTC;if(!b||!b.tdir)return"BTC方向不明";const d=b.tdir.get(time);return d===undefined||d===0?"BTC方向不明":d===s?"順BTC方向":"逆BTC方向"}
 const f2=x=>(x>=0?"+":"")+x.toFixed(2)+"R";
 function lsg(k,d){try{return JSON.parse(localStorage.getItem(k)||"null")??d}catch(e){return d}}
@@ -116,21 +116,27 @@ async function optimize(){if(optBusy||!A.BTC||!A.BTC.B)return;optBusy=true;const
   coins.forEach(c=>{const a=A[c];backtest(a.kk,sigs(a.kk,a.B,g).sg,g).tr.forEach(x=>tr.push(x))});
   res.push({g:GRID[i],train:summ(tr.filter(x=>x.time<cutT).map(x=>x.R)),test:summ(tr.filter(x=>x.time>=cutT).map(x=>x.R))});
   if(i%6===5){$("optsum").textContent=`🧠 AI 正在學習… ${i+1}/${GRID.length}`;await new Promise(r=>setTimeout(r,0));if(tf!==myTf){optBusy=false;return}}}
- const ok=res.filter(r=>r.train.n>=30).sort((a,b)=>b.train.avg-a.train.avg),best=ok[0];
- const pass=!!best&&best.train.avg>0&&best.test.n>=10&&best.test.avg>0;
+ // 評分：不只看平均，還看穩不穩（SQN＝平均÷波動×√筆數），並且要「鄰近參數」也表現好，避免挑到剛好運氣好的尖峰
+ const key=g=>JSON.stringify(g),byKey=new Map(res.map(r=>[key(r.g),r])),DIMS={n:[20,50],stop:[.5,1,1.5],rr:[1.5,2,3],vol:[0,1.2],retest:[true,false],btc:[false,true]};
+ res.forEach(r=>{r.sqn=r.train.n>=40?r.train.avg/(r.train.sd||1)*Math.sqrt(Math.min(r.train.n,100)):-99});
+ res.forEach(r=>{const nb=[r.sqn];Object.keys(DIMS).forEach(d=>{const v=DIMS[d],i=v.indexOf(r.g[d]);[i-1,i+1].forEach(j=>{if(j>=0&&j<v.length){const o=byKey.get(key({...r.g,[d]:v[j]}));if(o)nb.push(o.sqn)}})});r.score=nb.reduce((a,b)=>a+b,0)/nb.length});
+ const ok=res.filter(r=>r.train.n>=40&&r.train.avg>0).sort((a,b)=>b.score-a.score);let best=ok[0];
+ const curR=byKey.get(key({n:P.n,stop:P.stop,rr:P.rr,vol:P.vol,retest:P.retest,btc:P.btc}));
+ if(best&&curR&&curR!==best&&ACTIVE&&curR.train.avg>0&&curR.test.avg>0&&curR.test.n>=15&&best.score<curR.score*1.15)best=curR; // 差不多就不換，避免規則一直跳
+ const pass=!!best&&best.train.avg>0&&best.test.n>=15&&best.test.avg>0;
  if(best)Object.assign(P,best.g);ACTIVE=pass;
  OPT={best,pass,top:ok.slice(0,5),tested:res.length,coins:coins.length,cutT,time:Date.now()};
  const hk="opt_"+tf,hist=lsg(hk,{h:[]});hist.g=best?best.g:null;hist.pass=pass;hist.h.push({time:Date.now(),g:best?best.g:null,train:best?best.train:null,test:best?best.test:null,pass});hist.h=hist.h.slice(-20);lss(hk,hist);
- coins.forEach(c=>{A[c]=analyze(A[c].kk)});learn();paintAll();optBusy=false;if(!briefDone)buildBrief()}
+ coins.forEach(c=>{A[c]=analyze(A[c].kk)});JC.clear();learn();paintAll();optBusy=false;if(!briefDone)buildBrief()}
 function loadSaved(){const s=lsg("opt_"+tf,null);if(s&&s.g){Object.assign(P,s.g);ACTIVE=!!s.pass}else ACTIVE=false}
 function paintOpt(){const el=$("opt");if(!el)return;const O=OPT,hist=(lsg("opt_"+tf,{h:[]}).h||[]).slice().reverse();
  if(!O){$("optsum").textContent="🧠 AI 學習中…";el.innerHTML="<p class='mut'>正在用最新資料測試各種規則組合。</p>";return}
  const b=O.best;
  $("optsum").innerHTML=O.pass?`🧠 AI 學習：✅ 找到有效規則（新資料平均 ${f2(b.test.avg)}）`:`🧠 AI 學習：⛔ 這個週期沒有規則通過驗證，暫停進場訊號`;
- let h=`<p class="mut">用 ${O.coins} 個幣、各 1000 根 ${tf} K線，試了 ${O.tested} 種規則組合（突破長短、要不要量、要不要等回踩、要不要跟 BTC 同方向、停損停利幾倍）。<b>${hm(O.cutT)} 以前</b>的資料用來挑最好的，<b>之後</b>的資料完全不給它看，最後才拿來檢查是不是真的會賺。每 15 分鐘會用最新K線自動重新學一次，換成當下最強的那組。</p>`;
+ let h=`<p class="mut">用 ${O.coins} 個幣、各約 2000 根 ${tf} K線，試了 ${O.tested} 種規則組合（突破長短、要不要量、要不要等回踩、要不要跟 BTC 同方向、停損停利幾倍）。<b>${hm(O.cutT)} 以前</b>的資料用來挑最好的，<b>之後</b>的資料完全不給它看，最後才拿來檢查是不是真的會賺。每 15 分鐘會用最新K線自動重新學一次，換成當下最強的那組。</p>`;
  if(b)h+=`<p><b>目前最好的規則：</b>${pdesc(b.g)}。<br>挑選期：${b.train.n} 筆，勝率 ${b.train.win.toFixed(0)}%，平均 ${f2(b.train.avg)}<br>沒看過的新資料：${b.test.n} 筆，勝率 ${b.test.win.toFixed(0)}%，平均 ${f2(b.test.avg)}</p>
  <p>${O.pass?"<b style='color:var(--up)'>新資料也賺錢 → 已套用這個規則產生進場訊號。</b>":"<b style='color:var(--dn)'>新資料上是虧的或筆數不夠 → 代表它只是剛好配合過去，不能信。這個週期暫停給你進場訊號，可以切換別的週期看看。</b>"}</p>`;
- h+="<p class='mut'>挑選期排名前 5（平均每筆賺賠）：</p><table><tr><th>規則</th><th>筆數</th><th>勝率</th><th>平均</th></tr>"+O.top.map(r=>`<tr><td class="mut">${pdesc(r.g)}</td><td>${r.train.n}</td><td>${r.train.win.toFixed(0)}%</td><td>${f2(r.train.avg)}</td></tr>`).join("")+"</table>";
+ h+="<p class='mut'>挑選期排名前 5（依「穩定分數」排：平均要賺、波動要小、筆數要夠，而且相鄰參數也要好）：</p><table><tr><th>規則</th><th>筆數</th><th>勝率</th><th>平均</th></tr>"+O.top.map(r=>`<tr><td class="mut">${pdesc(r.g)}</td><td>${r.train.n}</td><td>${r.train.win.toFixed(0)}%</td><td>${f2(r.train.avg)}</td></tr>`).join("")+"</table>";
  if(hist.length)h+="<p class='mut' style='margin-top:10px'>學習紀錄（這支手機）：</p><table><tr><th>時間</th><th>新資料結果</th><th>套用</th></tr>"+hist.slice(0,10).map(x=>`<tr><td>${hm(x.time)}</td><td>${x.test?`${x.test.n} 筆 ${f2(x.test.avg)}`:"-"}</td><td>${x.pass?"✅":"⛔"}</td></tr>`).join("")+"</table>";
  el.innerHTML=h}
 /* ===== 錯誤來源分析：目前規則的訊號，哪種情況最常做錯 ===== */
@@ -269,7 +275,9 @@ function dirOf(c){const a=A[c];if(!a||!a.e50)return 0;const s=a.sg[a.sg.length-1
  if(s&&s.t===a.n-1)return s.s;if(a.pend)return a.pend.s;
  const e5=a.e50[a.n-1],e2=a.e200[a.n-1];return a.c>e5&&e5>e2?1:a.c<e5&&e5<e2?-1:0}
 function sel(c){cur=c;paint();$("chartcard").scrollIntoView({behavior:"smooth",block:"start"})}
-function judge(coin){ // 回傳 {txt,cls,sig,note}
+const JC=new Map();setInterval(()=>JC.clear(),900);
+function judge(coin){const h=JC.get(coin);if(h)return h;const r=judge0(coin);JC.set(coin,r);return r}
+function judge0(coin){
  const k=D[coin],a=A[coin];if(!k||!a)return{txt:"載入中",cls:""};
  if(Date.now()-lastMsg>10000)return{txt:"資料中斷",cls:""};
  const live=k[k.length-1].c,s=a.sg[a.sg.length-1];
@@ -292,34 +300,47 @@ function judge(coin){ // 回傳 {txt,cls,sig,note}
  return{txt:"等待",cls:"",why:"均線糾纏、方向不明，這種盤最容易假突破，不做。"};
 }
 /*B*/
-async function load(){
- setConn("連線中…（第一次會抓 40 個幣各 1000 根 K 線並回測，約 5–15 秒）","");D={};A={};firstPass=true;OPT=null;loadSaved();if(!briefDone)prevSeen=lsg("lastSeen",null);briefDone=false;$("brief").innerHTML="<p class='mut'>正在抓最新行情、讓 AI 重新學習，學完馬上統整給你（約 5～20 秒）…</p>";
+async function getJ(url,tries=3){let err;for(let i=0;i<tries;i++){const ac=new AbortController(),to=setTimeout(()=>ac.abort(),12000);
+ try{const r=await fetch(url,{signal:ac.signal,cache:"no-store"});clearTimeout(to);if(r.status===429||r.status===418){await new Promise(z=>setTimeout(z,3000*(i+1)));throw Error("太頻繁，稍等")}if(!r.ok)throw Error("HTTP "+r.status);return await r.json()}
+ catch(e){clearTimeout(to);err=e;await new Promise(z=>setTimeout(z,600*(i+1)))}}throw err}
+async function getK(c){const u=`${REST}/api/v3/klines?symbol=${c}USDT&interval=${tf}&limit=1000`;const r2=await getJ(u);if(!r2.length)return[];
+ let r1=[];try{r1=await getJ(u+"&endTime="+(r2[0][0]-1))}catch(e){}const m=new Map();r1.concat(r2).forEach(x=>m.set(x[0],x));return[...m.values()].sort((a,b)=>a[0]-b[0])} // 抓 2000 根，資料越多學得越穩
+async function pool(arr,n,fn){let i=0;await Promise.all(Array.from({length:n},async()=>{while(i<arr.length){const x=arr[i++];await fn(x)}}))}
+let loadId=0,loading=false;
+async function load(){const my=++loadId;loading=true;
+ setConn("連線中…（抓 40 個幣各 2000 根 K 線並讓 AI 學習，約 10–30 秒）","");D={};A={};firstPass=true;OPT=null;loadSaved();if(!briefDone)prevSeen=lsg("lastSeen",null);briefDone=false;$("brief").innerHTML="<p class='mut'>正在抓最新行情、讓 AI 重新學習，學完馬上統整給你…</p>";
  let tk=null,err="";
- for(const u of RESTS){try{const r=await fetch(u+"/api/v3/ticker/24hr");if(!r.ok)throw Error("HTTP "+r.status);tk=await r.json();REST=u;break}catch(e){err=e.message}}
- try{if(!tk)throw Error(err);const bad=/^(USDC|FDUSD|TUSD|USDP|DAI|BUSD|EUR|AEUR|USDE|XUSD|PYUSD|USD1)$/;
-  COINS=tk.filter(x=>x.symbol.endsWith("USDT")).map(x=>({b:x.symbol.slice(0,-4),v:+x.quoteVolume})).filter(x=>!bad.test(x.b)).sort((a,b)=>b.v-a.v).slice(0,40).map(x=>x.b);if(!COINS.includes("BTC"))COINS.unshift("BTC");POS.forEach(p=>{if(!COINS.includes(p.c))COINS.push(p.c)});
+ for(const u of RESTS){try{tk=await getJ(u+"/api/v3/ticker/24hr",2);REST=u;break}catch(e){err=e.message}}
+ if(my!==loadId)return;
+ try{if(!tk)throw Error(err);const bad=/^(USDC|FDUSD|TUSD|USDP|DAI|BUSD|EUR|AEUR|USDE|XUSD|PYUSD|USD1|BFUSD|RLUSD)$/;
+  COINS=tk.filter(x=>x.symbol.endsWith("USDT")&&+x.count!==0).map(x=>({b:x.symbol.slice(0,-4),v:+x.quoteVolume})).filter(x=>!bad.test(x.b)).sort((a,b)=>b.v-a.v).slice(0,40).map(x=>x.b);if(!COINS.includes("BTC"))COINS.unshift("BTC");POS.forEach(p=>{if(!COINS.includes(p.c))COINS.push(p.c)});
   if(!COINS.includes(cur))cur=COINS[0]}
- catch(e){setConn("連不到幣安（"+e.message+"）。你若是在 Claude App 裡打開，App 會擋所有外部連線，這不是程式壞掉。請照教學把檔案放上網址後，用 Safari 開。","bad");return}
- await Promise.all(COINS.map(async c=>{try{
-  const r=await(await fetch(`${REST}/api/v3/klines?symbol=${c}USDT&interval=${tf}&limit=1000`)).json();
+ catch(e){loading=false;setConn("連不到幣安（"+e.message+"）。若是在 Claude App 裡打開，App 會擋外部連線；請用 Safari 開你的網址。10 秒後自動重試。","bad");setTimeout(()=>{if(my===loadId)load()},1e4);return}
+ let done=0,fail=[];
+ await pool(COINS.slice(),8,async c=>{try{const r=await getK(c);if(my!==loadId)return;
   D[c]=r.map(x=>({t:x[0],o:+x[1],h:+x[2],l:+x[3],c:+x[4],v:+x[5],ct:x[6]}));
-  const c0=D[c];if(c0[c0.length-1].ct>Date.now())c0[c0.length-1].open=true;
-  A[c]=analyze(D[c].filter(x=>!x.open));
- }catch(e){setConn("取得行情失敗（可能被地區限制或沒網路）："+e.message,"bad")}}));
+  const c0=D[c];if(c0.length&&c0[c0.length-1].ct>Date.now())c0[c0.length-1].open=true;
+  A[c]=analyze(c0.filter(x=>!x.open))}catch(e){fail.push(c)}
+  done++;if(my===loadId)setConn(`抓行情中… ${done}/${COINS.length}`,"")});
+ if(my!==loadId)return;
+ COINS=COINS.filter(c=>D[c]&&D[c].length>300);
  COINS.forEach(c=>{if(A[c]&&A[c].kk)A[c]=analyze(A[c].kk)});
- lastMsg=Date.now();learn();connect();paintAll();setTimeout(optimize,300);
+ lastMsg=Date.now();loading=false;learn();connect();paintAll();if(fail.length)setConn(`已連線（${fail.join("、")} 抓取失敗，先略過）`,"ok");setTimeout(optimize,300);
 }
+let wsTry=0;
 function connect(){
- if(ws){ws.onclose=null;ws.close()}
- ws=new WebSocket(WSU+"/stream?streams="+COINS.map(c=>c.toLowerCase()+"usdt@kline_"+tf).join("/"));
- ws.onopen=()=>setConn("即時連線中","ok");
- ws.onclose=()=>{setConn("連線中斷，重新連線…","bad");setTimeout(()=>{if(!ws||ws.readyState>1)load()},3000)};
- ws.onmessage=m=>{const d=JSON.parse(m.data).data,c=d.s.replace("USDT",""),q=d.k,k=D[c];if(!k)return;lastMsg=Date.now();
+ if(ws){ws.onclose=null;ws.onmessage=null;try{ws.close()}catch(e){}}
+ const my=loadId;ws=new WebSocket(WSU+"/stream?streams="+COINS.map(c=>c.toLowerCase()+"usdt@kline_"+tf).join("/"));
+ ws.onopen=()=>{wsTry=0;setConn("即時連線中","ok")};
+ ws.onclose=()=>{if(my!==loadId)return;wsTry++;const wait=Math.min(30,2**wsTry);setConn(`即時連線中斷，${wait} 秒後重連…`,"bad");
+  setTimeout(()=>{if(my!==loadId)return;if(Date.now()-lastMsg>12e4)load();else connect()},wait*1000)}; // 斷很久就整個重抓，短暫斷線只重連
+ ws.onmessage=m=>{let d;try{d=JSON.parse(m.data).data}catch(e){return}if(!d||!d.k)return;const c=d.s.replace(/USDT$/,""),q=d.k,k=D[c];if(!k||!k.length)return;lastMsg=Date.now();
   const b={t:q.t,o:+q.o,h:+q.h,l:+q.l,c:+q.c,v:+q.v,ct:q.T};
-  if(k[k.length-1].t===b.t)k[k.length-1]=b;else k.push(b);
-  if(q.x){A[c]=analyze(k.slice());clearTimeout(window._lt);window._lt=setTimeout(()=>{learn();paintLearn()},3000)}
+  if(k[k.length-1].t===b.t)k[k.length-1]=b;else if(b.t>k[k.length-1].t){k.push(b);if(k.length>2100)k.splice(0,k.length-2000)}
+  if(q.x){A[c]=analyze(k.filter(x=>x.t<=b.t));JC.clear();clearTimeout(window._lt);window._lt=setTimeout(()=>{learn();paintLearn()},3000)}
   if(!raf)raf=requestAnimationFrame(()=>{raf=0;paint()});};
 }
+setInterval(()=>{if(document.visibilityState==="visible"&&!loading&&COINS.length&&Date.now()-lastMsg>25000){setConn("太久沒收到價格，重新連線…","bad");connect();lastMsg=Date.now()-15000}},5000); // 看門狗
 function setConn(t,c){const e=$("conn");e.textContent=t;e.className=c}
 function paint(){
  const cands=COINS.filter(c=>{const q=judge(c);return q.sig&&!q.weak});
@@ -336,7 +357,7 @@ function paint(){
   $("sig").textContent=j.why+" 以下用現價重新計算：";
   $("lv").innerHTML=[["現價",fp(live)],["訊號收盤價",fp(s.entry)],["停損",fp(s.stop)],["停利（"+P.rr+"R）",fp(tp)],["現價下風險報酬",rr.toFixed(1)],["倉位（下單金額）",notional.toFixed(1)+" USDT"],["槓桿（倉位÷本金）",Math.max(1,Math.ceil(notional/eq*10)/10).toFixed(1)+" 倍（上限 2）"],["碰停損會虧",(notional*d/live+notional*.001).toFixed(1)+" USDT"],["到停利約賺",(notional*Math.abs(tp-live)/live-notional*.001).toFixed(1)+" USDT"]].map(x=>`<div class="k"><small>${x[0]}</small><b>${x[1]}</b></div>`).join("");
  }else{$("sig").textContent=j.why||"目前沒有可行動的候選訊號。";$("lv").innerHTML=""}
- const bt=A[cur]&&A[cur].bt;$("bt").textContent=bt?(bt.n?`目前規則在 ${cur} 最近 1000 根 ${tf} K 線的表現：訊號 ${bt.n} 次，勝率 ${bt.win.toFixed(0)}%，平均每筆 ${bt.avg>=0?"+":""}${bt.avg.toFixed(2)}R（已扣手續費與滑價）。${bt.n<5?"次數太少，不可靠。":bt.avg<=0?"過去是虧的，這個幣不建議用此規則。":"過去為正，但不代表未來。"}`:`這個規則在 ${cur} 最近 1000 根K線沒有出現過訊號。`):"";
+ const bt=A[cur]&&A[cur].bt;$("bt").textContent=bt?(bt.n?`目前規則在 ${cur} 最近約 2000 根 ${tf} K 線的表現：訊號 ${bt.n} 次，勝率 ${bt.win.toFixed(0)}%，平均每筆 ${bt.avg>=0?"+":""}${bt.avg.toFixed(2)}R（已扣手續費與滑價）。${bt.n<5?"次數太少，不可靠。":bt.avg<=0?"過去是虧的，這個幣不建議用此規則。":"過去為正，但不代表未來。"}`:`這個規則在 ${cur} 最近約 2000 根K線沒有出現過訊號。`):"";
  const rank=c=>{const q=judge(c),a=A[c]||{},bt=a.bt||{n:0},T=a.atr||1;
   const stage=q.sig&&!q.weak?4:/^已(突破|跌破)/.test(q.txt)?3:q.sig?2:q.txt==="等待"&&dirOf(c)!==0?1:0;
   const qual=bt.n>=3?bt.avg:-9;
