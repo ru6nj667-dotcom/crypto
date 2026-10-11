@@ -27,6 +27,18 @@ input{width:90px;font:inherit;padding:4px 6px;border:1px solid var(--bd);border-
 <body><main>
 <h1>幣圈即時監控（幣安公開行情）</h1>
 <div id="conn">連線中…</div>
+<div class="card"><b>⭐ AI 推薦（進場程度＋歷史勝率最好的前 3 名）</b><div id="rec"></div></div>
+<details class="card" id="posbox" open><summary id="possum">💼 我的持倉</summary>
+<div class="mut">買了之後填這裡，我會一直盯著，有狀況馬上響＋通知（記得先按下面的🔔開啟提醒）。</div>
+<div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-top:6px">
+<select id="pc" style="font:inherit;padding:4px;border-radius:8px;background:var(--bg);color:var(--tx);border:1px solid var(--bd)"></select>
+<button id="ps" data-s="1" class="lg" onclick="setSide(-this.dataset.s)">▲ 做多</button>
+<span class="mut">買入價</span><input id="pe" type="number" step="any" placeholder="例 285.5">
+<span class="mut">投入</span><input id="pm" type="number" step="any" placeholder="U" style="width:70px">
+<span class="mut">槓桿</span><input id="pl" type="number" value="2" style="width:50px">
+<span class="mut">停損（可空白）</span><input id="pst" type="number" step="any" placeholder="自動">
+<button class="on" onclick="addPos()">＋ 加入監控</button></div>
+<div id="poslist"></div></details>
 <div class="tabs" id="coins"></div>
 <div class="row" style="margin-bottom:8px"><button id="alertBtn" onclick="enableAlert()">🔔 開啟提醒（聲音＋通知）</button><span class="mut" id="alertHint"></span></div>
 <div class="tabs" id="tfs"></div>
@@ -114,7 +126,7 @@ function paintOpt(){const el=$("opt");if(!el)return;const O=OPT,hist=(lsg("opt_"
  if(!O){$("optsum").textContent="🧠 AI 學習中…";el.innerHTML="<p class='mut'>正在用最新資料測試各種規則組合。</p>";return}
  const b=O.best;
  $("optsum").innerHTML=O.pass?`🧠 AI 學習：✅ 找到有效規則（新資料平均 ${f2(b.test.avg)}）`:`🧠 AI 學習：⛔ 這個週期沒有規則通過驗證，暫停進場訊號`;
- let h=`<p class="mut">用 ${O.coins} 個幣、各 1000 根 ${tf} K線，試了 ${O.tested} 種規則組合（突破長短、要不要量、要不要等回踩、要不要跟 BTC 同方向、停損停利幾倍）。<b>${hm(O.cutT)} 以前</b>的資料用來挑最好的，<b>之後</b>的資料完全不給它看，最後才拿來檢查是不是真的會賺。每小時會用最新K線自動重新學一次。</p>`;
+ let h=`<p class="mut">用 ${O.coins} 個幣、各 1000 根 ${tf} K線，試了 ${O.tested} 種規則組合（突破長短、要不要量、要不要等回踩、要不要跟 BTC 同方向、停損停利幾倍）。<b>${hm(O.cutT)} 以前</b>的資料用來挑最好的，<b>之後</b>的資料完全不給它看，最後才拿來檢查是不是真的會賺。每 15 分鐘會用最新K線自動重新學一次，換成當下最強的那組。</p>`;
  if(b)h+=`<p><b>目前最好的規則：</b>${pdesc(b.g)}。<br>挑選期：${b.train.n} 筆，勝率 ${b.train.win.toFixed(0)}%，平均 ${f2(b.train.avg)}<br>沒看過的新資料：${b.test.n} 筆，勝率 ${b.test.win.toFixed(0)}%，平均 ${f2(b.test.avg)}</p>
  <p>${O.pass?"<b style='color:var(--up)'>新資料也賺錢 → 已套用這個規則產生進場訊號。</b>":"<b style='color:var(--dn)'>新資料上是虧的或筆數不夠 → 代表它只是剛好配合過去，不能信。這個週期暫停給你進場訊號，可以切換別的週期看看。</b>"}</p>`;
  h+="<p class='mut'>挑選期排名前 5（平均每筆賺賠）：</p><table><tr><th>規則</th><th>筆數</th><th>勝率</th><th>平均</th></tr>"+O.top.map(r=>`<tr><td class="mut">${pdesc(r.g)}</td><td>${r.train.n}</td><td>${r.train.win.toFixed(0)}%</td><td>${f2(r.train.avg)}</td></tr>`).join("")+"</table>";
@@ -168,8 +180,58 @@ ${P.retest?`<li>回踩：之後 ${P.win} 根K線內，價格回到突破的那�
 <li>停損：放在突破線外 ${P.stop} 倍 ATR（ATR＝這個幣平常一根K線的波動）。停利：風險的 ${P.rr} 倍。</li>
 <li>下單金額：依停損距離算，每筆碰停損最多虧本金 1%；槓桿最高 2 倍。</li>
 <li>不追：現價已碰停損、已往有利方向跑超過半個風險距離、或風險報酬不到 1.2，都不提醒。</li>
-<li>上面這些數字不是我隨便訂的，是 AI 每小時用最新資料試 144 種組合後挑出來、而且在沒看過的資料上也賺錢的那一組。沒有任何一組通過時，就不給進場訊號。</li>`}
-function paintAll(){paintOpt();paintLearn();paintRules();paint();paintLog()}
+<li>上面這些數字不是我隨便訂的，是 AI 每 15 分鐘用最新資料試 144 種組合後挑出來、而且在沒看過的資料上也賺錢的那一組。沒有任何一組通過時，就不給進場訊號。</li>`}
+function paintAll(){paintOpt();paintLearn();paintRules();paint();paintLog();paintRec();paintPos()}
+/* ===== 推薦 ===== */
+function rankOf(c){const q=judge(c),a=A[c]||{},bt=a.bt||{n:0},T=a.atr||1,d=dirOf(c);
+ const stage=q.sig&&!q.weak?4:/^已(突破|跌破)/.test(q.txt)?3:q.sig?2:q.txt==="等待"&&d!==0?1:0;
+ const qual=bt.n>=3?bt.avg:-9,dist=a.pend?Math.abs(a.c-a.pend.lv)/T:a.c?Math.abs((d>0?a.hn:a.ln)-a.c)/T:99;
+ return{c,q,stage,qual,dist,bt,d}}
+function paintRec(){const el=$("rec");if(!el)return;
+ if(!OPT){el.innerHTML="<span class='mut'>AI 學習中，學完才推薦…</span>";return}
+ if(!ACTIVE){el.innerHTML=`<span class='mut'>AI 在 ${tf} 找不到能通過驗證的規則，所以不推薦。可以切換其他週期試試。</span>`;return}
+ const r=COINS.map(rankOf).filter(x=>x.stage>=3&&x.qual>0).sort((a,b)=>b.stage-a.stage||b.qual-a.qual||a.dist-b.dist).slice(0,3);
+ if(!r.length){el.innerHTML="<span class='mut'>目前沒有接近進場、而且歷史成績好的幣。耐心等，沒有好機會就不做。</span>";return}
+ el.innerHTML=r.map((x,i)=>{const nm=x.d>0?"做多":"做空",now=x.stage===4;
+  return`<div class="row" style="padding:6px 0;border-bottom:1px solid var(--bd)" onclick="sel('${x.c}')"><div><b>${i+1}. ${x.c}</b> <span class="tag ${x.d>0?"long":"short"}">${now?"現在可"+nm:"快可以"+nm}</span><div class="mut">歷史勝率 ${x.bt.win.toFixed(0)}%・平均 ${f2(x.bt.avg)}（${x.bt.n} 筆）${now?"":"・等回踩到位"}</div></div><span class="mut">看K線 ›</span></div>`}).join("")}
+/* ===== 我的持倉：隨時監控，有狀況馬上通知 ===== */
+let POS=lsg("pos",[]),posSeen={};
+function savePos(){lss("pos",POS)}
+function liqOf(p){return p.lev<=1?null:p.s>0?p.entry*(1-1/p.lev+.005):p.entry*(1+1/p.lev-.005)}
+function addPos(){const c=$("pc").value,s=+$("ps").dataset.s,entry=+$("pe").value,m=+$("pm").value,lev=Math.max(1,+$("pl").value||1),us=+$("pst").value;
+ if(!c||!entry||!m){alert("請填幣種、買入價、投入多少 U");return}
+ const T=(A[c]&&A[c].atr)||entry*.01,stop=us>0?us:entry-s*Math.max(1,P.stop)*T,risk=Math.abs(entry-stop);
+ if((entry-stop)*s<=0){alert("停損價方向不對：做多停損要低於買入價，做空要高於。");return}
+ POS.push({id:Date.now(),c,s,entry,m,lev,stop,stop0:stop,tp:entry+s*P.rr*risk,at:Date.now()});savePos();$("pe").value="";$("pst").value="";paintPos()}
+function closePos(id){if(!confirm("確定已經平倉、移除這筆？"))return;POS=POS.filter(p=>p.id!==id);savePos();paintPos()}
+function beStop(id){const p=POS.find(x=>x.id===id);if(p){p.stop=p.entry;savePos();paintPos()}}
+function evalPos(p){const k=D[p.c],a=A[p.c];if(!k||!a)return{lv:"ok",msg:"載入中（這個幣的行情還沒抓到）"};
+ const px=k[k.length-1].c,risk=Math.abs(p.entry-p.stop0),R=(px-p.entry)*p.s/risk,qty=p.m*p.lev/p.entry,pnl=qty*(px-p.entry)*p.s,liq=liqOf(p);
+ const base={px,R,pnl,pct:pnl/p.m*100,liq};const e50=a.e50?a.e50[a.n-1]:null,j=judge(p.c);
+ if(liq&&(px-liq)*p.s<=0)return{...base,lv:"danger",msg:`💥 價格已到估算強平價 ${fp(liq)}，請立刻到交易所確認！`};
+ if((px-p.stop)*p.s<=0)return{...base,lv:"danger",msg:`🛑 已碰停損 ${fp(p.stop)}，建議立刻賣掉，不要拗。`};
+ if((px-p.tp)*p.s>=0)return{...base,lv:"good",msg:`✅ 到停利 ${fp(p.tp)}，建議賣掉獲利了結；或先賣一半，剩下的停損移到成本價。`};
+ if(liq&&Math.abs(px-liq)<Math.abs(px-p.stop))return{...base,lv:"danger",msg:`⚠️ 強平價 ${fp(liq)} 比停損還近，槓桿太高，建議降槓桿或減倉。`};
+ if(e50&&(a.c-e50)*p.s<0)return{...base,lv:"warn",msg:`🔄 K線收盤已經${p.s>0?"跌破":"站上"} EMA50（${fp(e50)}），趨勢轉弱，建議出場或至少減倉。`};
+ if(j.sig&&j.sig.s.s===-p.s)return{...base,lv:"warn",msg:`🔄 出現反方向的${p.s>0?"做空":"做多"}訊號，建議出場。`};
+ if(R<=-.7)return{...base,lv:"warn",msg:`⚠️ 接近停損（已虧 ${(-R).toFixed(1)}R），準備好停損，不要加碼攤平。`};
+ if(R>=1&&(p.stop-p.entry)*p.s<0)return{...base,lv:"good",msg:`🔒 已賺 ${R.toFixed(1)}R，建議把停損移到成本價 ${fp(p.entry)}，這筆就不會虧了。`,be:true};
+ if(j.sig&&!j.weak&&j.sig.s.s===p.s&&(p.stop-p.entry)*p.s>=0)return{...base,lv:"good",msg:`➕ 同方向又出現通過驗證的新訊號，停損已在成本價，可以考慮小量加倉（加倉部分照新訊號的停損）。`};
+ return{...base,lv:"ok",msg:`持有中，正常。停損 ${fp(p.stop)}、停利 ${fp(p.tp)}。`}}
+function paintPos(){const el=$("poslist");if(!el)return;
+ const sel=$("pc");if(sel&&sel.options.length!==COINS.length){const v=sel.value;sel.innerHTML=COINS.map(c=>`<option>${c}</option>`).join("");if(v)sel.value=v}
+ $("possum").textContent=`💼 我的持倉（${POS.length}）`+(POS.some(p=>{const e=evalPos(p);return e.lv==="danger"||e.lv==="warn"})?"・⚠️ 有狀況":"");
+ el.innerHTML=POS.map(p=>{const e=evalPos(p),col=e.lv==="danger"?"var(--dn)":e.lv==="warn"?"#e0a800":e.lv==="good"?"var(--up)":"var(--mut)";
+  return`<div style="border:1px solid ${col};border-radius:10px;padding:8px;margin:8px 0"><div class="row"><b>${p.c} ${p.s>0?"做多":"做空"} ${p.lev}x</b><span style="color:${(e.pnl||0)>=0?"var(--up)":"var(--dn)"};font-weight:700">${e.pnl!==undefined?(e.pnl>=0?"+":"")+e.pnl.toFixed(2)+" U（"+e.pct.toFixed(1)+"%）":""}</span></div>
+  <div class="mut">買入 ${fp(p.entry)}・投入 ${p.m} U・現價 ${e.px?fp(e.px):"--"}${e.liq?"・估算強平 "+fp(e.liq):""}</div>
+  <div style="color:${col};margin-top:4px">${e.msg}</div>
+  <div class="row" style="margin-top:6px">${e.be?`<button onclick="beStop(${p.id})">我已把停損移到成本</button>`:"<span></span>"}<button onclick="closePos(${p.id})">已平倉，移除</button></div></div>`}).join("")||"<p class='mut'>還沒有持倉。買了之後在上面填一下，我就會一直幫你盯。</p>"}
+function checkPos(){POS.forEach(p=>{const e=evalPos(p);if(e.lv==="ok"||!e.px){posSeen[p.id]=e.msg;return}
+ if(posSeen[p.id]===e.msg)return;const first=posSeen[p.id]===undefined;posSeen[p.id]=e.msg;if(first&&e.lv==="good")return;
+ const msg=`${p.c} ${p.s>0?"做多":"做空"}：${e.msg}`;document.title="⚠️ "+msg;
+ if(alertOn){beep();setTimeout(beep,500);setTimeout(beep,1000);try{if(window.Notification&&Notification.permission==="granted")new Notification("持倉提醒",{body:msg})}catch(x){}}})}
+function setSide(s){const b=$("ps");b.dataset.s=s;b.textContent=s>0?"▲ 做多":"▼ 做空";b.className=s>0?"lg":"sh"}
+
 function dirOf(c){const a=A[c];if(!a||!a.e50)return 0;const s=a.sg[a.sg.length-1];
  if(s&&s.t===a.n-1)return s.s;if(a.pend)return a.pend.s;
  const e5=a.e50[a.n-1],e2=a.e200[a.n-1];return a.c>e5&&e5>e2?1:a.c<e5&&e5<e2?-1:0}
@@ -202,7 +264,7 @@ async function load(){
  let tk=null,err="";
  for(const u of RESTS){try{const r=await fetch(u+"/api/v3/ticker/24hr");if(!r.ok)throw Error("HTTP "+r.status);tk=await r.json();REST=u;break}catch(e){err=e.message}}
  try{if(!tk)throw Error(err);const bad=/^(USDC|FDUSD|TUSD|USDP|DAI|BUSD|EUR|AEUR|USDE|XUSD|PYUSD|USD1)$/;
-  COINS=tk.filter(x=>x.symbol.endsWith("USDT")).map(x=>({b:x.symbol.slice(0,-4),v:+x.quoteVolume})).filter(x=>!bad.test(x.b)).sort((a,b)=>b.v-a.v).slice(0,40).map(x=>x.b);if(!COINS.includes("BTC"))COINS.unshift("BTC");
+  COINS=tk.filter(x=>x.symbol.endsWith("USDT")).map(x=>({b:x.symbol.slice(0,-4),v:+x.quoteVolume})).filter(x=>!bad.test(x.b)).sort((a,b)=>b.v-a.v).slice(0,40).map(x=>x.b);if(!COINS.includes("BTC"))COINS.unshift("BTC");POS.forEach(p=>{if(!COINS.includes(p.c))COINS.push(p.c)});
   if(!COINS.includes(cur))cur=COINS[0]}
  catch(e){setConn("連不到幣安（"+e.message+"）。你若是在 Claude App 裡打開，App 會擋所有外部連線，這不是程式壞掉。請照教學把檔案放上網址後，用 Safari 開。","bad");return}
  await Promise.all(COINS.map(async c=>{try{
@@ -241,11 +303,17 @@ function paint(){
   $("lv").innerHTML=[["現價",fp(live)],["訊號收盤價",fp(s.entry)],["停損",fp(s.stop)],["停利（"+P.rr+"R）",fp(tp)],["現價下風險報酬",rr.toFixed(1)],["倉位（下單金額）",notional.toFixed(1)+" USDT"],["槓桿（倉位÷本金）",Math.max(1,Math.ceil(notional/eq*10)/10).toFixed(1)+" 倍（上限 2）"],["碰停損會虧",(notional*d/live+notional*.001).toFixed(1)+" USDT"],["到停利約賺",(notional*Math.abs(tp-live)/live-notional*.001).toFixed(1)+" USDT"]].map(x=>`<div class="k"><small>${x[0]}</small><b>${x[1]}</b></div>`).join("");
  }else{$("sig").textContent=j.why||"目前沒有可行動的候選訊號。";$("lv").innerHTML=""}
  const bt=A[cur]&&A[cur].bt;$("bt").textContent=bt?(bt.n?`目前規則在 ${cur} 最近 1000 根 ${tf} K 線的表現：訊號 ${bt.n} 次，勝率 ${bt.win.toFixed(0)}%，平均每筆 ${bt.avg>=0?"+":""}${bt.avg.toFixed(2)}R（已扣手續費與滑價）。${bt.n<5?"次數太少，不可靠。":bt.avg<=0?"過去是虧的，這個幣不建議用此規則。":"過去為正，但不代表未來。"}`:`這個規則在 ${cur} 最近 1000 根K線沒有出現過訊號。`):"";
- const pr=q=>q.sig&&!q.weak?0:q.sig?2:/^已(突破|跌破)/.test(q.txt)?1:2;
+ const rank=c=>{const q=judge(c),a=A[c]||{},bt=a.bt||{n:0},T=a.atr||1;
+  const stage=q.sig&&!q.weak?4:/^已(突破|跌破)/.test(q.txt)?3:q.sig?2:q.txt==="等待"&&dirOf(c)!==0?1:0;
+  const qual=bt.n>=3?bt.avg:-9;
+  const dist=a.pend?Math.abs(a.c-a.pend.lv)/T:a.c?Math.abs((dirOf(c)>0?a.hn:a.ln)-a.c)/T:99;
+  return{q,stage,qual,dist,bt}};
  const cnt=d=>COINS.filter(c=>dirOf(c)===d).length;
  $("sides").innerHTML=[[1,"▲ 做多"],[-1,"▼ 做空"],[0,"方向不明"]].map(([d,t])=>`<button class="${side===d?(d>0?"lg":d<0?"sh":"on"):""}" onclick="side=${d};paint()">${t}（${cnt(d)}）</button>`).join("");
- $("sidehint").textContent=side>0?"多頭方向的幣：只找做多機會，排最上面的最接近進場。":side<0?"空頭方向的幣：只找做空機會，排最上面的最接近進場。":"均線糾纏、方向不明，這些不做。";
- $("list").innerHTML=COINS.filter(c=>dirOf(c)===side).map(c=>({c,jj:judge(c)})).sort((a,b)=>pr(a.jj)-pr(b.jj)).map(({c,jj})=>{const kk=D[c];return`<tr class="${c===cur?"sel":""}" onclick="sel('${c}')"><td><b>${c}</b></td><td>${kk?fp(kk[kk.length-1].c):"--"}</td><td><span class="tag ${jj.cls||""}">${jj.txt}</span></td></tr>${jj.why?`<tr class="${c===cur?"sel":""}" onclick="sel('${c}')"><td colspan="3" class="mut" style="padding-top:0">${jj.why}</td></tr>`:""}`}).join("");
+ $("sidehint").textContent=(side>0?"多頭方向的幣，只找做多。":side<0?"空頭方向的幣，只找做空。":"均線糾纏、方向不明，這些不做。")+" 排序：①現在就能進場 ②已突破等回踩 ③其他；同一層裡，過去用這規則越賺錢的排越上面，再來是離進場點越近的。";
+ $("list").innerHTML=COINS.filter(c=>dirOf(c)===side).map(c=>({c,...rank(c)})).sort((a,b)=>b.stage-a.stage||b.qual-a.qual||a.dist-b.dist).map(({c,q:jj,bt},i)=>{const kk=D[c];
+  const hist=bt.n>=3?`<span style="color:${bt.avg>0?"var(--up)":"var(--dn)"}">#${i+1}・歷史勝率 ${bt.win.toFixed(0)}%・平均 ${f2(bt.avg)}（${bt.n} 筆）</span>`:`<span>#${i+1}・歷史訊號太少，無法評分</span>`;
+  jj={...jj,why:hist+"<br>"+(jj.why||"")};return`<tr class="${c===cur?"sel":""}" onclick="sel('${c}')"><td><b>${c}</b></td><td>${kk?fp(kk[kk.length-1].c):"--"}</td><td><span class="tag ${jj.cls||""}">${jj.txt}</span></td></tr>${jj.why?`<tr class="${c===cur?"sel":""}" onclick="sel('${c}')"><td colspan="3" class="mut" style="padding-top:0">${jj.why}</td></tr>`:""}`}).join("");
  draw();
 }
 function draw(){
@@ -275,7 +343,7 @@ function checkAlerts(){const now=COINS.filter(c=>{const q=judge(c);return q.sig&
   const msg=`${c} 可以${q.sig.s.s>0?"做多":"做空"}（${tf}）停損 ${fp(q.sig.s.stop)} 停利 ${fp(q.sig.tp)}`;
   document.title="🔔 "+msg;if(alertOn){beep();setTimeout(beep,700);try{if(window.Notification&&Notification.permission==="granted")new Notification("進場候選",{body:msg})}catch(e){}}});
  if(Object.keys(A).length)firstPass=false}
-setInterval(checkAlerts,2000);setInterval(paintLog,5000);setInterval(optimize,36e5);
+setInterval(checkAlerts,2000);setInterval(paintLog,5000);setInterval(optimize,9e5);setInterval(()=>{checkPos();paintPos();paintRec()},2000);
 $("eq").oninput=paint;addEventListener("resize",paint);setInterval(paint,1000);load();
 </script>
 </body>
