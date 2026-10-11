@@ -20,7 +20,7 @@ jobs:
           path: state
           key: state-${{ github.run_id }}
           restore-keys: state-
-      - run: node notify.mjs
+      - run: node --experimental-default-type=module notify.js
         env:
           TG_TOKEN: ${{ secrets.TG_TOKEN }}
           TF: "1h"
