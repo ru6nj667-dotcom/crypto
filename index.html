@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>幣圈即時監控</title>
+<style>
+:root{--bg:#f6f7f9;--card:#fff;--tx:#14171c;--mut:#667085;--bd:#e3e6ea;--up:#0f9d6b;--dn:#d6443a;--ac:#2b5cff}
+@media (prefers-color-scheme:dark){:root{--bg:#0e1116;--card:#171b22;--tx:#e8ebf0;--mut:#8b94a3;--bd:#262c36;--up:#2ccf94;--dn:#ff6b60;--ac:#7c9bff}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--tx);font:15px/1.5 -apple-system,"PingFang TC","Noto Sans TC","Microsoft JhengHei",sans-serif;padding:env(safe-area-inset-top) 0 env(safe-area-inset-bottom)}
+main{max-width:820px;margin:0 auto;padding:12px}h1{font-size:18px;margin:4px 0 8px}
+.card{background:var(--card);border:1px solid var(--bd);border-radius:14px;padding:12px;margin-bottom:10px}
+.tabs{display:flex;gap:6px;overflow-x:auto;margin-bottom:8px;padding-bottom:2px}
+button{border:1px solid var(--bd);background:var(--card);color:var(--tx);border-radius:99px;padding:6px 12px;font:inherit;white-space:nowrap}
+button.on{background:var(--ac);color:#fff;border-color:var(--ac)}button.lg{background:var(--up);color:#fff;border-color:var(--up)}button.sh{background:var(--dn);color:#fff;border-color:var(--dn)}tbody tr{cursor:pointer}
+.row{display:flex;justify-content:space-between;align-items:center;gap:8px}
+.price{font-size:28px;font-weight:700}.mut{color:var(--mut);font-size:13px}
+.tag{padding:3px 10px;border-radius:99px;font-size:13px;font-weight:600;background:var(--bd);color:var(--mut)}
+.tag.long{background:color-mix(in srgb,var(--up) 18%,transparent);color:var(--up)}.tag.short{background:color-mix(in srgb,var(--dn) 18%,transparent);color:var(--dn)}
+canvas{width:100%;height:300px;display:block}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px}.k{background:var(--bg);border-radius:10px;padding:7px 10px}.k small{display:block;color:var(--mut);font-size:12px}
+table{width:100%;border-collapse:collapse;font-size:14px}td,th{padding:7px 3px;border-bottom:1px solid var(--bd);text-align:left}th{color:var(--mut);font-weight:500;font-size:12px}
+tr.sel{background:var(--bg)}#conn{padding:8px 12px;border-radius:10px;font-size:13px;margin-bottom:8px;background:var(--bd);color:var(--mut)}#conn.ok{background:color-mix(in srgb,var(--up) 15%,transparent);color:var(--up)}#conn.bad{background:color-mix(in srgb,var(--dn) 15%,transparent);color:var(--dn)}
+input{width:90px;font:inherit;padding:4px 6px;border:1px solid var(--bd);border-radius:8px;background:var(--bg);color:var(--tx)}
+</style>
+</head>
+<body><main>
+<h1>幣圈即時監控（幣安公開行情）</h1>
+<div id="conn">連線中…</div>
+<div class="tabs" id="coins"></div>
+<div class="row" style="margin-bottom:8px"><button id="alertBtn" onclick="enableAlert()">🔔 開啟提醒（聲音＋通知）</button><span class="mut" id="alertHint"></span></div>
+<div class="tabs" id="tfs"></div>
+<div class="card" id="chartcard">
+  <div class="row"><div><b id="sym"></b><div class="price" id="price">--</div><div class="mut" id="age"></div></div><span class="tag" id="st">載入中</span></div>
+  <canvas id="cv"></canvas>
+  <div id="sig" class="mut"></div>
+  <div class="grid" id="lv"></div>
+  <p class="mut" id="bt"></p>
+</div>
+<div class="card"><span class="mut">本金</span> <input id="eq" type="number" value="1000"> <span class="mut">USDT · 單筆風險 1% · 槓桿上限 2 倍</span></div>
+<div class="card"><div class="tabs" id="sides"></div><div class="mut" id="sidehint"></div><table><thead><tr><th>幣種（點一下看K線）</th><th>現價</th><th>狀態</th></tr></thead><tbody id="list"></tbody></table></div>
+<div class="card"><b>🧠 AI 學習報告：哪種情況最容易做錯</b><div id="learn"></div></div>
+<div class="card"><b>📒 提醒過的訊號，後來真的怎樣了</b><div id="log"></div></div>
+<div class="card"><b>什麼時候會叫你進場（全部條件都要成立）</b>
+<ol class="mut" style="margin:6px 0 0;padding-left:20px">
+<li>大方向：做多要 EMA50 在 EMA200 上方、價格在 EMA50 上方（做空相反）。</li>
+<li>突破：K線<b>收盤</b>站上近 20 根高點（做空是收盤跌破近 20 根低點），而且這根的<b>成交量至少是前 20 根平均的 1.2 倍</b>。盤中碰到、或沒量的突破都不算。</li>
+<li>回踩：之後 12 根K線內，價格回到突破的那條線附近，收盤守住，而且這根是<b>紅K（收漲）或有長下影線</b>（做空要綠K收跌或長上影線），代表有人在這裡接 → 這根收盤就是進場時機。</li>
+<li>停損放在那條線外 0.5 倍 ATR，停利是風險的 2 倍；倉位依停損距離算，每筆最多虧本金 1%。</li>
+<li>不追：現價已碰停損、已往有利方向跑超過半個風險距離、或風險報酬不到 1.2，都不提醒。</li>
+<li>這個幣過去 1000 根K線用這規則是虧的或次數太少，標「歷史不佳」，不列入候選。</li>
+</ol></div>
+
+<p class="mut">規則是「順勢突破後等回踩確認」。頁面會用每個幣自己最近 1000 根 K 線回測，過去虧損或樣本太少的幣會標「歷史不佳」，不放進可進場候選。回測短、市場會變，候選訊號不是保證。價格資料中斷時會停止判斷。此頁只讀行情，不會下單。下單前請再確認即時價格。</p>
+</main>
+<script>
+let COINS=[];const TFS=["3m","15m","1h","4h"];let side=1;
+const P={n:20,win:12,tol:.25,stop:.5,rr:2,risk:.01,lev:2};
+const RESTS=["https://data-api.binance.vision","https://api.binance.com","https://api1.binance.com"],WSU="wss://data-stream.binance.vision";let REST=RESTS[0];
+let tf="1h",cur="BTC",D={},A={},ws=null,lastMsg=0,raf=0;
+const $=i=>document.getElementById(i);
+const TFMS={"3m":18e4,"15m":9e5,"1h":36e5,"4h":144e5};
+const hm=ms=>{const d=new Date(ms);return (d.getMonth()+1)+"/"+d.getDate()+" "+String(d.getHours()).padStart(2,"0")+":"+String(d.getMinutes()).padStart(2,"0")};
+const fp=v=>v>=100?v.toFixed(2):v>=1?v.toFixed(4):v.toFixed(6);
+/*A*/
+function ema(a,n){const k=2/(n+1);let e=a[0];return a.map((v,i)=>{if(i)e=v*k+e*(1-k);return e})}
+function analyze(k){
+ const n=k.length;if(n<220)return{sg:[],pend:null,n,bt:{n:0,win:0,avg:0,tr:[]}};
+ const cl=k.map(x=>x.c),e50=ema(cl,50),e200=ema(cl,200),atr=[];let a=0;
+ k.forEach((x,i)=>{const tr=i?Math.max(x.h-x.l,Math.abs(x.h-cl[i-1]),Math.abs(x.l-cl[i-1])):x.h-x.l;a=i?a+(tr-a)/14:tr;atr.push(a)});
+ const sg=[];let pend=null;const tdir=new Map();
+ for(let t=0;t<n;t++)tdir.set(k[t].t,e50[t]>e200[t]*1.001?1:e50[t]<e200[t]*.999?-1:0);
+ for(let t=210;t<n;t++){
+  let hh=-Infinity,ll=Infinity,av=0;for(let j=t-P.n;j<t;j++){hh=Math.max(hh,k[j].h);ll=Math.min(ll,k[j].l);av+=k[j].v/P.n}
+  const x=k[t],T=atr[t],volR=av>0?x.v/av:0,body=Math.abs(x.c-x.o),lw=Math.min(x.o,x.c)-x.l,uw=x.h-Math.max(x.o,x.c),
+   bullC=x.c>x.o||lw>=body,bearC=x.c<x.o||uw>=body;
+  const mk=(s,stop)=>({t,time:x.t,s,entry:x.c,stop,f:{vol:pend.vr,trend:(e50[t]-e200[t])/e200[t]*100*s,atrp:T/x.c*100,ext:(x.c-e50[t])/T*s,wick:(s>0?lw:uw)>=body?"影線":"實體"}});
+  if(pend){const s=pend.s,lv=pend.lv;
+   if(t>pend.ex||(s>0&&x.c<lv)||(s<0&&x.c>lv))pend=null;
+   else if(s>0&&x.l<=lv+P.tol*T&&x.c>lv&&bullC){sg.push(mk(1,Math.min(x.l,lv)-P.stop*T));pend=null;continue}
+   else if(s<0&&x.h>=lv-P.tol*T&&x.c<lv&&bearC){sg.push(mk(-1,Math.max(x.h,lv)+P.stop*T));pend=null;continue}}
+  if(!pend){if(x.c>e50[t]&&e50[t]>e200[t]&&x.c>hh&&volR>=1.2)pend={s:1,lv:hh,ex:t+P.win,vr:volR};else if(x.c<e50[t]&&e50[t]<e200[t]&&x.c<ll&&volR>=1.2)pend={s:-1,lv:ll,ex:t+P.win,vr:volR}}
+ }
+ let hn=-Infinity,ln=Infinity;for(let j=n-P.n;j<n;j++){hn=Math.max(hn,k[j].h);ln=Math.min(ln,k[j].l)}
+ return{sg,pend,n,e50,e200,tdir,bt:backtest(k,sg),atr:atr[n-1],hn,ln,lastT:k[n-1].t,c:cl[n-1]};
+}
+function backtest(k,sg){ // 用這個幣自己的歷史K線檢驗規則：下一根開盤進場、扣手續費0.05%x2與滑價0.03%x2、同根碰到停損停利時算停損
+ const F=.0005,S=.0003,H=48,tr=[];let last=-1;
+ for(const g of sg){const t=g.t;if(t<=last||t+1>=k.length)continue;
+  const e=k[t+1].o*(1+S*g.s),dist=(e-g.stop)*g.s;if(dist<=0)continue;
+  const tp=e+g.s*P.rr*dist;let ex=null,j=t+1;
+  for(;j<Math.min(k.length,t+1+H);j++){const b=k[j];
+   if(g.s>0?b.l<=g.stop:b.h>=g.stop){ex=g.stop;break}
+   if(g.s>0?b.h>=tp:b.l<=tp){ex=tp;break}}
+  if(ex===null){if(j>=k.length)continue;ex=k[j-1].c}
+  ex*=1-S*g.s;tr.push({R:((ex-e)*g.s-e*F*2)/dist,time:g.time,s:g.s,f:g.f});last=j}
+ return{...summ(tr.map(x=>x.R)),tr};
+}
+function summ(rs){return rs.length?{n:rs.length,win:rs.filter(r=>r>0).length/rs.length*100,avg:rs.reduce((a,b)=>a+b,0)/rs.length}:{n:0,win:0,avg:0}}
+/* ===== 學習：從所有幣的歷史訊號找出「哪種情況最容易做錯」 ===== */
+let LEARN=null;
+function btcRel(time,s){const b=A.BTC;if(!b||!b.tdir)return"BTC方向不明";const d=b.tdir.get(time);return d===undefined||d===0?"BTC方向不明":d===s?"順BTC方向":"逆BTC方向"}
+const FEAT=[["btc","BTC 大盤方向"],["vol","突破時的成交量倍數"],["trend","趨勢強度（均線分開程度）"],["atrp","波動大小"],["ext","離均線多遠（追得多高）"],["wick","回踩K棒樣子"]];
+function bucket(f,v,cuts){if(f==="btc"||f==="wick")return v;const c=cuts[f];return v<c[0]?"低":v<c[1]?"中":"高"}
+function featsOf(g){return{...g.f,btc:btcRel(g.time,g.s)}}
+function learn(){
+ const all=[];COINS.forEach(c=>{const a=A[c];if(a&&a.bt&&a.bt.tr)a.bt.tr.forEach(x=>all.push({...x,F:featsOf(x)}))});
+ all.sort((a,b)=>a.time-b.time);
+ if(all.length<60){LEARN={few:true,n:all.length};return}
+ const cut=Math.floor(all.length*.7),train=all.slice(0,cut),test=all.slice(cut);
+ const q=(arr,p)=>{const s=[...arr].sort((a,b)=>a-b);return s[Math.floor(p*(s.length-1))]};
+ const cuts={};["vol","trend","atrp","ext"].forEach(f=>{const v=train.map(x=>x.F[f]);cuts[f]=[q(v,1/3),q(v,2/3)]});
+ const rows=[],bad=[];
+ FEAT.forEach(([f,name])=>{const g={};train.forEach(x=>{const b=bucket(f,x.F[f],cuts);(g[b]=g[b]||[]).push(x.R)});
+  Object.keys(g).forEach(b=>{const st=summ(g[b]),isBad=st.n>=20&&st.avg<0;rows.push({f,name,b,...st,isBad});if(isBad)bad.push([f,b])})});
+ const hit=x=>bad.find(([f,b])=>bucket(f,x.F[f],cuts)===b);
+ const base=summ(test.map(x=>x.R)),filt=summ(test.filter(x=>!hit(x)).map(x=>x.R));
+ const applied=bad.length>0&&filt.n>=10&&filt.avg>base.avg;
+ LEARN={rows,bad,cuts,base,filt,applied,ntrain:train.length,ntest:test.length,all:summ(all.map(x=>x.R))};
+}
+function learnBlock(g){if(!LEARN||!LEARN.applied)return null;const F=featsOf(g);
+ const m=LEARN.bad.find(([f,b])=>bucket(f,F[f],LEARN.cuts)===b);if(!m)return null;
+ const name=FEAT.find(x=>x[0]===m[0])[1];return`${name}「${m[1]}」`}
+function paintLearn(){const L=LEARN,el=$("learn");if(!el)return;
+ if(!L){el.innerHTML="<span class='mut'>載入中…</span>";return}
+ if(L.few){el.innerHTML=`<span class='mut'>這個週期歷史訊號只有 ${L.n} 筆，太少，還不能學。換 15m 或 1h 試試。</span>`;return}
+ const f2=x=>(x>=0?"+":"")+x.toFixed(2)+"R";
+ let h=`<p class="mut">把 ${COINS.length} 個幣過去所有訊號（共 ${L.ntrain+L.ntest} 筆）拿出來檢討：前 70% 用來找「哪種情況最常做錯」，後 30% 當成沒看過的新資料，檢查避開這些情況後是不是真的變好。</p>
+ <p><b>全部訊號：</b>勝率 ${L.all.win.toFixed(0)}%，平均 ${f2(L.all.avg)}</p>
+ <table><tr><th>檢查項目</th><th>情況</th><th>筆數</th><th>勝率</th><th>平均</th></tr>`;
+ L.rows.forEach(r=>{h+=`<tr${r.isBad?' style="color:var(--dn)"':''}><td>${r.name}</td><td>${r.b}</td><td>${r.n}</td><td>${r.win.toFixed(0)}%</td><td>${f2(r.avg)}${r.isBad?" ✗":""}</td></tr>`});
+ h+=`</table><p>${L.bad.length?`<b>找到的錯誤來源（紅色 ✗）：</b>${L.bad.map(([f,b])=>FEAT.find(x=>x[0]===f)[1]+"「"+b+"」").join("、")}。`:"<b>沒有找到明顯的錯誤來源</b>（每種情況至少要 20 筆且平均虧損才算）。"}</p>`;
+ if(L.bad.length)h+=`<p>拿新資料檢查：不避開時平均 ${f2(L.base.avg)}（${L.base.n} 筆），避開後平均 ${f2(L.filt.avg)}（${L.filt.n} 筆）→ ${L.applied?"<b style='color:var(--up)'>真的變好，已套用：碰到這些情況的訊號會標「學習排除」，不提醒。</b>":"<b>沒有變好，可能只是巧合，所以不套用。</b>"}</p>`;
+ el.innerHTML=h}
+/* ===== 實際訊號紀錄：每個提醒過的訊號，之後真的漲還是跌，都記下來 ===== */
+function lsGet(){try{return JSON.parse(localStorage.getItem("siglog")||"[]")}catch(e){return[]}}
+function lsSet(v){try{localStorage.setItem("siglog",JSON.stringify(v.slice(-200)))}catch(e){}}
+function logAdd(c,q){const L=lsGet(),s=q.sig.s;if(L.find(x=>x.c===c&&x.tf===tf&&x.t===s.time))return;
+ L.push({c,tf,t:s.time,s:s.s,entry:s.entry,stop:s.stop,tp:q.sig.tp,st:"進行中",btc:btcRel(s.time,s.s)});lsSet(L)}
+function logUpdate(){const L=lsGet();let ch=false;
+ L.forEach(e=>{if(e.st!=="進行中"||e.tf!==tf||!D[e.c])return;const bars=D[e.c].filter(b=>b.t>e.t);
+  for(let i=0;i<bars.length;i++){const b=bars[i];
+   if(e.s>0?b.l<=e.stop:b.h>=e.stop){e.st="停損";ch=true;break}
+   if(e.s>0?b.h>=e.tp:b.l<=e.tp){e.st="停利";ch=true;break}
+   if(i>=48&&!b.open){e.st="到期";ch=true;break}}});
+ if(ch)lsSet(L);return L}
+function paintLog(){const el=$("log");if(!el)return;const L=logUpdate(),done=L.filter(x=>x.st==="停損"||x.st==="停利");
+ const w=done.filter(x=>x.st==="停利").length;
+ let h=`<p class="mut">只記在這支手機的瀏覽器裡。已結束 ${done.length} 筆：停利 ${w}、停損 ${done.length-w}${done.length?`（勝率 ${(w/done.length*100).toFixed(0)}%）`:""}。停利是停損的 2 倍，所以勝率高於 34% 長期才會賺。</p>`;
+ const lost=done.filter(x=>x.st==="停損");
+ if(lost.length>=3){const by={};lost.forEach(x=>by[x.btc]=(by[x.btc]||0)+1);const top=Object.entries(by).sort((a,b)=>b[1]-a[1])[0];
+  h+=`<p>停損的 ${lost.length} 筆裡，有 ${top[1]} 筆是「${top[0]}」。</p>`}
+ h+="<table><tr><th>時間</th><th>幣</th><th>方向</th><th>結果</th></tr>"+(L.slice(-30).reverse().map(x=>`<tr><td>${hm(x.t)} ${x.tf}</td><td>${x.c}</td><td>${x.s>0?"做多":"做空"}</td><td style="color:${x.st==="停利"?"var(--up)":x.st==="停損"?"var(--dn)":"var(--mut)"}">${x.st}</td></tr>`).join("")||"<tr><td colspan=4 class='mut'>還沒有紀錄</td></tr>")+"</table>";
+ el.innerHTML=h}
+function dirOf(c){const a=A[c];if(!a||!a.e50)return 0;const s=a.sg[a.sg.length-1];
+ if(s&&s.t===a.n-1)return s.s;if(a.pend)return a.pend.s;
+ const e5=a.e50[a.n-1],e2=a.e200[a.n-1];return a.c>e5&&e5>e2?1:a.c<e5&&e5<e2?-1:0}
+function sel(c){cur=c;paint();$("chartcard").scrollIntoView({behavior:"smooth",block:"start"})}
+function judge(coin){ // 回傳 {txt,cls,sig,note}
+ const k=D[coin],a=A[coin];if(!k||!a)return{txt:"載入中",cls:""};
+ if(Date.now()-lastMsg>10000)return{txt:"資料中斷",cls:""};
+ const live=k[k.length-1].c,s=a.sg[a.sg.length-1];
+ if(s&&s.t===a.n-1){const sd=Math.abs(s.entry-s.stop),d=(live-s.stop)*s.s,tp=s.entry+s.s*P.rr*sd,rr=(tp-live)*s.s/d,name=s.s>0?"做多":"做空",cls=s.s>0?"long":"short";
+  if(d<=0)return{txt:"已碰停損，不追",cls:"",why:"剛出現的訊號，但現價已經碰到停損位置，這筆作廢。"};
+  if((live-s.entry)*s.s>.5*sd)return{txt:"已跑太遠，不追",cls:"",why:"剛出現訊號，但價格已經往有利方向跑太多，現在追進去停損太遠、不划算。"};
+  if(rr<1.2)return{txt:"報酬不足，等待",cls:"",why:"以現價計算，離停利太近、離停損太遠，風險報酬不到 1.2，不做。"};
+  const bt=a.bt,lb=learnBlock(s),weak=bt.n<5||bt.avg<=0||!!lb;
+  const until=hm(a.lastT+2*TFMS[tf]);
+  return{txt:"候選"+name+(lb?"・學習排除":weak?"・歷史不佳":""),cls:weak?"":cls,weak,sig:{s,tp,rr,d,live},
+   why:`${s.s>0?"突破後回踩守住":"跌破後反彈被壓回"}。現在可考慮${name}，停損 ${fp(s.stop)}、停利 ${fp(tp)}。有效到 ${until}（下一根K線收盤），之後作廢。`+(lb?`但這筆屬於${lb}，過去這種情況多半做錯，不建議。`:weak?"但此規則在這個幣過去不賺錢，不建議。":"")}}
+ const ms=TFMS[tf],T=a.atr;
+ if(a.pend){const p=a.pend,end=hm(a.lastT+(p.ex-(a.n-1))*ms+ms),z=p.s>0?`${fp(p.lv)}～${fp(p.lv+P.tol*T)}`:`${fp(p.lv-P.tol*T)}～${fp(p.lv)}`;
+  return p.s>0?{txt:"已突破，等回踩",cls:"",why:`等價格回落到 ${z}，且K線收盤仍在 ${fp(p.lv)} 之上 → 做多。若收盤跌回 ${fp(p.lv)} 以下，或到 ${end} 都沒回踩，就取消。`}
+   :{txt:"已跌破，等反彈",cls:"",why:`等價格反彈到 ${z}，且K線收盤仍在 ${fp(p.lv)} 之下 → 做空。若收盤站回 ${fp(p.lv)} 以上，或到 ${end} 都沒反彈，就取消。`}}
+ const e5=a.e50[a.n-1],e2=a.e200[a.n-1];
+ if(a.c>e5&&e5>e2)return{txt:"等待",cls:"",why:`多頭趨勢，但還沒突破。等K線收盤站上 ${fp(a.hn)}（近${P.n}根高點），再等回踩才進場。現在不追。`};
+ if(a.c<e5&&e5<e2)return{txt:"等待",cls:"",why:`空頭趨勢，但還沒跌破。等K線收盤跌破 ${fp(a.ln)}（近${P.n}根低點），再等反彈才做空。現在不追。`};
+ return{txt:"等待",cls:"",why:"均線糾纏、方向不明，這種盤最容易假突破，不做。"};
+}
+/*B*/
+async function load(){
+ setConn("連線中…（第一次會抓 40 個幣各 1000 根 K 線並回測，約 5–15 秒）","");D={};A={};firstPass=true;
+ let tk=null,err="";
+ for(const u of RESTS){try{const r=await fetch(u+"/api/v3/ticker/24hr");if(!r.ok)throw Error("HTTP "+r.status);tk=await r.json();REST=u;break}catch(e){err=e.message}}
+ try{if(!tk)throw Error(err);const bad=/^(USDC|FDUSD|TUSD|USDP|DAI|BUSD|EUR|AEUR|USDE|XUSD|PYUSD|USD1)$/;
+  COINS=tk.filter(x=>x.symbol.endsWith("USDT")).map(x=>({b:x.symbol.slice(0,-4),v:+x.quoteVolume})).filter(x=>!bad.test(x.b)).sort((a,b)=>b.v-a.v).slice(0,40).map(x=>x.b);if(!COINS.includes("BTC"))COINS.unshift("BTC");
+  if(!COINS.includes(cur))cur=COINS[0]}
+ catch(e){setConn("連不到幣安（"+e.message+"）。你若是在 Claude App 裡打開，App 會擋所有外部連線，這不是程式壞掉。請照教學把檔案放上網址後，用 Safari 開。","bad");return}
+ await Promise.all(COINS.map(async c=>{try{
+  const r=await(await fetch(`${REST}/api/v3/klines?symbol=${c}USDT&interval=${tf}&limit=1000`)).json();
+  D[c]=r.map(x=>({t:x[0],o:+x[1],h:+x[2],l:+x[3],c:+x[4],v:+x[5],ct:x[6]}));
+  const c0=D[c];if(c0[c0.length-1].ct>Date.now())c0[c0.length-1].open=true;
+  A[c]=analyze(D[c].filter(x=>!x.open));
+ }catch(e){setConn("取得行情失敗（可能被地區限制或沒網路）："+e.message,"bad")}}));
+ lastMsg=Date.now();learn();paintLearn();connect();paint();paintLog();
+}
+function connect(){
+ if(ws){ws.onclose=null;ws.close()}
+ ws=new WebSocket(WSU+"/stream?streams="+COINS.map(c=>c.toLowerCase()+"usdt@kline_"+tf).join("/"));
+ ws.onopen=()=>setConn("即時連線中","ok");
+ ws.onclose=()=>{setConn("連線中斷，重新連線…","bad");setTimeout(()=>{if(!ws||ws.readyState>1)load()},3000)};
+ ws.onmessage=m=>{const d=JSON.parse(m.data).data,c=d.s.replace("USDT",""),q=d.k,k=D[c];if(!k)return;lastMsg=Date.now();
+  const b={t:q.t,o:+q.o,h:+q.h,l:+q.l,c:+q.c,v:+q.v,ct:q.T};
+  if(k[k.length-1].t===b.t)k[k.length-1]=b;else k.push(b);
+  if(q.x){A[c]=analyze(k.slice());clearTimeout(window._lt);window._lt=setTimeout(()=>{learn();paintLearn()},3000)}
+  if(!raf)raf=requestAnimationFrame(()=>{raf=0;paint()});};
+}
+function setConn(t,c){const e=$("conn");e.textContent=t;e.className=c}
+function paint(){
+ const cands=COINS.filter(c=>{const q=judge(c);return q.sig&&!q.weak});
+ $("coins").innerHTML="<b style='white-space:nowrap'>可進場候選：</b>"+(cands.length?cands.map(c=>{const q=judge(c);return`<button class="${q.sig.s.s>0?"lg":"sh"}" onclick="sel('${c}')">${c} ${q.sig.s.s>0?"做多":"做空"}</button>`}).join(""):"<span class='mut'>目前沒有（全部等待中）</span>");
+ $("tfs").innerHTML=TFS.map(t=>`<button class="${t===tf?"on":""}" onclick="if(tf!=='${t}'){tf='${t}';load()}">${t}</button>`).join("");
+ const k=D[cur];if(!k)return;
+ const j=judge(cur),last=k[k.length-1];
+ $("sym").textContent=cur+"/USDT · "+tf;$("price").textContent=fp(last.c);
+ $("age").textContent=Date.now()-lastMsg<10000?"價格剛更新（"+Math.round((Date.now()-lastMsg)/1000)+" 秒前）":"資料已中斷，停止判斷";
+ $("st").textContent=j.txt;$("st").className="tag "+(j.cls||"");
+ const eq=+$("eq").value||0;
+ if(j.sig){const{s,tp,rr,d,live}=j.sig,notional=Math.min(eq*P.risk/(d/live),eq*P.lev);
+  $("sig").textContent=j.why+" 以下用現價重新計算：";
+  $("lv").innerHTML=[["現價",fp(live)],["訊號收盤價",fp(s.entry)],["停損",fp(s.stop)],["停利（2R）",fp(tp)],["現價下風險報酬",rr.toFixed(1)],["倉位（下單金額）",notional.toFixed(1)+" USDT"],["槓桿（倉位÷本金）",Math.max(1,Math.ceil(notional/eq*10)/10).toFixed(1)+" 倍（上限 2）"],["碰停損會虧",(notional*d/live+notional*.001).toFixed(1)+" USDT"],["到停利約賺",(notional*Math.abs(tp-live)/live-notional*.001).toFixed(1)+" USDT"]].map(x=>`<div class="k"><small>${x[0]}</small><b>${x[1]}</b></div>`).join("");
+ }else{$("sig").textContent=j.why||"目前沒有可行動的候選訊號。";$("lv").innerHTML=""}
+ const bt=A[cur]&&A[cur].bt;$("bt").textContent=bt?(bt.n?`這個規則在 ${cur} 最近 1000 根 ${tf} K 線的表現：訊號 ${bt.n} 次，勝率 ${bt.win.toFixed(0)}%，平均每筆 ${bt.avg>=0?"+":""}${bt.avg.toFixed(2)}R（已扣手續費與滑價）。${bt.n<5?"次數太少，不可靠。":bt.avg<=0?"過去是虧的，這個幣不建議用此規則。":"過去為正，但不代表未來。"}`:`這個規則在 ${cur} 最近 1000 根K線沒有出現過訊號。`):"";
+ const pr=q=>q.sig&&!q.weak?0:q.sig?2:/^已(突破|跌破)/.test(q.txt)?1:2;
+ const cnt=d=>COINS.filter(c=>dirOf(c)===d).length;
+ $("sides").innerHTML=[[1,"▲ 做多"],[-1,"▼ 做空"],[0,"方向不明"]].map(([d,t])=>`<button class="${side===d?(d>0?"lg":d<0?"sh":"on"):""}" onclick="side=${d};paint()">${t}（${cnt(d)}）</button>`).join("");
+ $("sidehint").textContent=side>0?"多頭方向的幣：只找做多機會，排最上面的最接近進場。":side<0?"空頭方向的幣：只找做空機會，排最上面的最接近進場。":"均線糾纏、方向不明，這些不做。";
+ $("list").innerHTML=COINS.filter(c=>dirOf(c)===side).map(c=>({c,jj:judge(c)})).sort((a,b)=>pr(a.jj)-pr(b.jj)).map(({c,jj})=>{const kk=D[c];return`<tr class="${c===cur?"sel":""}" onclick="sel('${c}')"><td><b>${c}</b></td><td>${kk?fp(kk[kk.length-1].c):"--"}</td><td><span class="tag ${jj.cls||""}">${jj.txt}</span></td></tr>${jj.why?`<tr class="${c===cur?"sel":""}" onclick="sel('${c}')"><td colspan="3" class="mut" style="padding-top:0">${jj.why}</td></tr>`:""}`}).join("");
+ draw();
+}
+function draw(){
+ const cv=$("cv"),r=devicePixelRatio||1,w=cv.clientWidth,h=300,g=cv.getContext("2d"),st=getComputedStyle(document.body);
+ cv.width=w*r;cv.height=h*r;g.scale(r,r);
+ const up=getComputedStyle(document.documentElement).getPropertyValue("--up"),dn=getComputedStyle(document.documentElement).getPropertyValue("--dn"),mut=getComputedStyle(document.documentElement).getPropertyValue("--mut"),ac=getComputedStyle(document.documentElement).getPropertyValue("--ac"),bd=getComputedStyle(document.documentElement).getPropertyValue("--bd");
+ const k=D[cur],a=A[cur];if(!k)return;
+ const V=Math.min(80,k.length),s0=k.length-V,vis=k.slice(s0);
+ let lo=Math.min(...vis.map(x=>x.l)),hi=Math.max(...vis.map(x=>x.h));const pd=(hi-lo)*.06;lo-=pd;hi+=pd;
+ const R=58,bw=(w-R)/V,y=v=>6+(hi-v)/(hi-lo)*(h-14),x=i=>(i+.5)*bw;
+ g.font="10px sans-serif";g.fillStyle=mut;g.strokeStyle=bd;
+ for(let i=0;i<=4;i++){const v=lo+(hi-lo)*i/4;g.beginPath();g.moveTo(0,y(v));g.lineTo(w-R,y(v));g.stroke();g.fillText(fp(v),w-R+4,y(v)+3)}
+ vis.forEach((c,i)=>{const col=c.c>=c.o?up:dn;g.strokeStyle=col;g.fillStyle=col;g.beginPath();g.moveTo(x(i),y(c.h));g.lineTo(x(i),y(c.l));g.stroke();g.fillRect(x(i)-bw*.31,Math.min(y(c.o),y(c.c)),bw*.62,Math.max(1.5,Math.abs(y(c.o)-y(c.c))))});
+ if(a&&a.e50){[[a.e50,ac],[a.e200,"#e0a800"]].forEach(([e,col])=>{g.strokeStyle=col;g.lineWidth=1.2;g.beginPath();let on=0;vis.forEach((c,i)=>{const idx=s0+i;if(idx<e.length){on?g.lineTo(x(i),y(e[idx])):g.moveTo(x(i),y(e[idx]));on=1}});g.stroke();g.lineWidth=1});
+  a.sg.forEach(s=>{const i=s.t-s0;if(i>=0){g.fillStyle=s.s>0?up:dn;g.font="14px sans-serif";g.fillText(s.s>0?"▲":"▼",x(i)-6,s.s>0?y(vis[i].l)+15:y(vis[i].h)-5)}})}
+ const lp=k[k.length-1].c;g.setLineDash([4,3]);g.strokeStyle=ac;g.beginPath();g.moveTo(0,y(lp));g.lineTo(w-R,y(lp));g.stroke();g.setLineDash([]);
+ g.fillStyle=ac;g.fillRect(w-R,y(lp)-8,R,16);g.fillStyle="#fff";g.font="11px sans-serif";g.fillText(fp(lp),w-R+3,y(lp)+4);
+}
+let actx=null,alertOn=false,seen=new Set(),firstPass=true;
+function enableAlert(){try{actx=actx||new (window.AudioContext||window.webkitAudioContext)();actx.resume()}catch(e){}
+ if(window.Notification&&Notification.permission==="default")Notification.requestPermission();
+ alertOn=true;$("alertBtn").textContent="🔔 提醒已開啟";$("alertBtn").className="on";
+ $("alertHint").textContent=" 頁面要保持開著、螢幕亮著才會響";beep()}
+function beep(){if(!actx)return;try{const o=actx.createOscillator(),g=actx.createGain();o.connect(g);g.connect(actx.destination);o.frequency.value=880;g.gain.setValueAtTime(.25,actx.currentTime);g.gain.exponentialRampToValueAtTime(.001,actx.currentTime+.6);o.start();o.stop(actx.currentTime+.6)}catch(e){}}
+function checkAlerts(){const now=COINS.filter(c=>{const q=judge(c);return q.sig&&!q.weak});
+ now.forEach(c=>{const q=judge(c),key=c+tf+A[c].lastT;if(seen.has(key))return;seen.add(key);if(firstPass)return;logAdd(c,q);
+  const msg=`${c} 可以${q.sig.s.s>0?"做多":"做空"}（${tf}）停損 ${fp(q.sig.s.stop)} 停利 ${fp(q.sig.tp)}`;
+  document.title="🔔 "+msg;if(alertOn){beep();setTimeout(beep,700);try{if(window.Notification&&Notification.permission==="granted")new Notification("進場候選",{body:msg})}catch(e){}}});
+ if(Object.keys(A).length)firstPass=false}
+setInterval(checkAlerts,2000);setInterval(paintLog,5000);
+$("eq").oninput=paint;addEventListener("resize",paint);setInterval(paint,1000);load();
+</script>
+</body>
+</html>
