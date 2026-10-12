@@ -175,7 +175,7 @@ async function handleCmds(cmds) {
       out.push(G(`POS.length?POS.map(p=>{const e=evalPos(p);return p.c+" "+(p.s>0?"做多":"做空")+" "+p.lev+"x 買 "+fp(p.entry)+(e.pnl!==undefined?"｜"+(e.pnl>=0?"+":"")+e.pnl.toFixed(2)+" U":"")+"\\n👉 "+e.msg}).join("\\n\\n"):"目前沒有持倉。用 /long 或 /short 加入。"`));
     } else if (c0 === "/status") {
       out.push(G(`(()=>{const r=COINS.map(rankOf).filter(x=>x.stage>=3&&x.qual>0).sort((a,b)=>b.stage-a.stage||b.qual-a.qual||a.dist-b.dist).slice(0,5);
-        return (ACTIVE?"目前策略："+pdesc(P):"⛔ "+tf+" 目前沒有規則通過驗證，不給訊號")+"\\n\\n"+(r.length?r.map((x,i)=>(i+1)+". "+x.c+" "+x.q.txt+"\\n"+planTxt(x.c,true)).join("\\n"):"現在沒有接近進場的好機會。")})()`));
+        return (ACTIVE?"目前策略："+pdesc(P):"⛔ "+tf+" 目前沒有規則通過驗證，不給訊號")+"\\n\\n"+(r.length?r.map((x,i)=>(i+1)+". "+x.c+" "+x.q.txt+(PC[x.c]?"（🧩 "+FAMZH[PC[x.c].fam]+"）":"")+"\\n"+planTxt(x.c,true)).join("\\n"):"現在沒有接近進場的好機會。")})()`));
     } else if (c0 === "/news" || t === "新聞") {
       later.push("news");
     } else if (c0 === "/report" || t === "報告") {
@@ -221,8 +221,8 @@ if (!st.journal.length) { try { st.journal = JSON.parse(fs.readFileSync("data/jo
 function journalUpdate() {
   globalThis.__J = st.journal;
   const jr = JSON.parse(G(`JSON.stringify((()=>{const J=globalThis.__J,ms=TFMS[tf],now=Date.now(),have=new Set(J.map(r=>r.c+"|"+r.tf+"|"+r.t+"|"+r.fam));let added=0,done=0;
-   COINS.forEach(c=>{const a=A[c];if(!a||!a.sg)return;a.sg.forEach(g=>{if(g.time<now-6*ms)return;const k=c+"|"+tf+"|"+g.time+"|"+P.fam;if(have.has(k))return;have.add(k);
-    J.push({c,tf,t:g.time,s:g.s,fam:P.fam,stop:g.stop,rr:P.rr,exit:P.exit,atr:g.atr,htf:P.htf,crowd:P.crowd,f:g.f,btc:btcRel(g.time,g.s),news:newsRisk(c)?1:0,fng:NEWS&&NEWS.fng?NEWS.fng.value:null});added++})});
+   COINS.forEach(c=>{const a=A[c],q=ruleOf(c);if(!a||!a.sg)return;a.sg.forEach(g=>{if(g.time<now-6*ms)return;const k=c+"|"+tf+"|"+g.time+"|"+q.fam;if(have.has(k))return;have.add(k);
+    J.push({c,tf,t:g.time,s:g.s,fam:q.fam,stop:g.stop,rr:q.rr,exit:q.exit,atr:g.atr,htf:q.htf,crowd:q.crowd,pc:PC[c]?1:0,f:g.f,btc:btcRel(g.time,g.s),news:newsRisk(c)?1:0,fng:NEWS&&NEWS.fng?NEWS.fng.value:null});added++})});
    const F=.0005,S=.0003;J.forEach(r=>{if(r.R!==undefined||r.tf!==tf)return;const a=A[r.c];if(!a||!a.kk){if(now-r.t>14*864e5){r.R=0;r.out="無資料"}return}
     const k=a.kk,i=k.findIndex(b=>b.t>r.t);if(i<0)return;const e=k[i].o*(1+S*r.s),dist=(e-r.stop)*r.s;if(!(dist>0)){r.R=0;r.out="無效";return}
     const q2=simTrade(k,i,r.s,e,r.stop,r.rr,r.exit||"fixed",r.atr);if(!q2||q2.open)return;const ex=q2.ex*(1-S*r.s);r.R=+(((ex-e)*r.s-e*F*2)/dist).toFixed(3);r.out=q2.out==="停損"?"停損":/停利/.test(q2.out)?"停利":"到期";r.out2=q2.out;done++});
@@ -238,7 +238,7 @@ async function alerts() {
   G("lastMsg=Date.now();JC.clear()"); // 雲端沒有即時連線：計算前把行情時間標成剛更新
   const msgs = JSON.parse(G(`JSON.stringify((()=>{const out=[];
    COINS.forEach(c=>{const a=A[c];if(!a)return;const q=judge(c);
-    if(q.sig&&!q.weak){const p=planOf(c),v=verdict(c);if(!p||!v||!v.ok)return;out.push({c,k:"sig|"+tf+"|"+c+"|"+a.lastT,t:"✅ 可以進場："+(q.sig.s.s>0?"做多":"做空")+" "+c+"（"+tf+"，"+v.items.length+" 項檢查全部通過）\\n傳訊時現價 "+fp(p.live)+"\\n進場區間 "+fp(p.lo)+"～"+fp(p.hi)+"\\n⚠️ "+(q.sig.s.s>0?"現價高於 "+fp(p.hi):"現價低於 "+fp(p.lo))+" 就不要追，這筆放掉\\n建議用限價單掛在區間內，同時設好停損停利\\n停損 "+fp(p.stop)+"\\n"+(P.exit==="trail"?"第一目標 "+fp(p.tp)+"（到了不賣：停損移到成本，之後跟著價格移動）":"停利 "+fp(p.tp))+"\\n有效到這根K線收盤（還有 "+closeIn(c)+"）\\n歷史勝率 "+a.bt.win.toFixed(0)+"%・平均 "+f2(a.bt.avg)+"（"+a.bt.n+" 筆）"})}
+    if(q.sig&&!q.weak){const p=planOf(c),v=verdict(c);if(!p||!v||!v.ok)return;out.push({c,k:"sig|"+tf+"|"+c+"|"+a.lastT,t:"✅ 可以進場："+(q.sig.s.s>0?"做多":"做空")+" "+c+"（"+tf+"，"+FAMZH[ruleOf(c).fam]+"，"+v.items.length+" 項檢查全部通過）\\n傳訊時現價 "+fp(p.live)+"\\n進場區間 "+fp(p.lo)+"～"+fp(p.hi)+"\\n⚠️ "+(q.sig.s.s>0?"現價高於 "+fp(p.hi):"現價低於 "+fp(p.lo))+" 就不要追，這筆放掉\\n建議用限價單掛在區間內，同時設好停損停利\\n停損 "+fp(p.stop)+"\\n"+(P.exit==="trail"?"第一目標 "+fp(p.tp)+"（到了不賣：停損移到成本，之後跟著價格移動）":"停利 "+fp(p.tp))+"\\n有效到這根K線收盤（還有 "+closeIn(c)+"）\\n歷史勝率 "+a.bt.win.toFixed(0)+"%・平均 "+f2(a.bt.avg)+"（"+a.bt.n+" 筆）"})}
     else if(ACTIVE&&a.bt&&a.bt.n>=5&&a.bt.avg>0){const p=planOf(c);if(p&&!p.now&&p.inZone)out.push({c,k:"zone|"+tf+"|"+c+"|"+a.lastT,t:"⏰ "+c+" 進入"+(p.s>0?"做多":"做空")+"預估區 "+fp(p.lo)+"～"+fp(p.hi)+"（"+tf+"）\\nK線 "+closeIn(c)+" 後收盤，收盤符合條件才會變成可以進場。"})}});
    POS.forEach(p=>{const e=evalPos(p);if(e.lv!=="ok"&&e.px)out.push({k:"pos|"+p.id,msg:e.msg,t:"💼 "+p.c+" "+(p.s>0?"做多":"做空")+"："+e.msg+(e.pnl!==undefined?"\\n目前 "+(e.pnl>=0?"+":"")+e.pnl.toFixed(2)+" U（"+e.pct.toFixed(1)+"%）":"")})});
    out.forEach(m=>{if(m.c){const n=futNote(m.c);if(n)m.t+="\\n"+n}});

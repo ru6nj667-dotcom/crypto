@@ -66,6 +66,10 @@ input{width:90px;font:inherit;padding:4px 6px;border:1px solid var(--bd);border-
 <script>
 let COINS=[];const TFS=["3m","15m","1h","4h"];let side=1;
 const P={htf:false,exit:"fixed",crowd:false,fam:"bo",n:20,win:12,tol:.25,stop:.5,rr:2,risk:.01,lev:2,vol:1.2,retest:true,btc:false,L:40,z:2,g:null};
+// 每個幣用最適合自己的策略：PC[幣]＝這個幣改用的規則（沒有就用全體最好的規則）。只在「沒看過的資料」上證明比單一策略賺更多時才啟用
+let PC={};const FAMZH={bo:"突破回踩",pb:"順勢回檔",mr:"超跌反彈"};
+function withC(c,f){const g=c&&PC[c];if(!g)return f();const save={...P};Object.assign(P,g);try{return f()}finally{Object.assign(P,save)}}
+function ruleOf(c){return PC[c]?{...P,...PC[c]}:P}
 const RESTS=["https://data-api.binance.vision","https://api.binance.com","https://api1.binance.com"],WSU="wss://data-stream.binance.vision";let REST=RESTS[0];
 let tf="1h",cur="BTC",D={},A={},ws=null,lastMsg=0,raf=0;
 const $=i=>document.getElementById(i);
@@ -154,12 +158,12 @@ function pdesc(g){const tail=`${g.btc?"、只做跟 BTC 同方向":""}；停損 
 let CLOUD=null;
 async function loadModel(){try{const r=await fetch("data/model.json?"+Date.now(),{cache:"no-store"});if(!r.ok)return null;const m=await r.json();
  if(!m||m.tf!==tf||!m.g||Date.now()-m.time>3*36e5)return null;return m}catch(e){return null}}
-function applyModel(m){CLOUD=m;if(m.grid&&m.grid.list&&m.grid.tf===tf&&Date.now()-m.grid.time<3*36e5)GRIDR=m.grid;Object.assign(P,m.g,m.ext||{htf:false,exit:"fixed",crowd:false});P.g=m.g;P.ext=m.ext;ACTIVE=!!m.active;LIVEST=m.live||null;
+function applyModel(m){CLOUD=m;PC=m.pc||{};if(m.grid&&m.grid.list&&m.grid.tf===tf&&Date.now()-m.grid.time<3*36e5)GRIDR=m.grid;Object.assign(P,m.g,m.ext||{htf:false,exit:"fixed",crowd:false});P.g=m.g;P.ext=m.ext;ACTIVE=!!m.active;LIVEST=m.live||null;
  OPT={...m.opt,pass:!!m.active,paused:!!m.paused,fromCloud:true,time:m.time};JC.clear()}
 async function refreshModel(){if(tf!==(CLOUD&&CLOUD.tf))return;const m=await loadModel();if(m&&(!CLOUD||m.time>CLOUD.time)){applyModel(m);COINS.forEach(c=>{if(A[c]&&A[c].kk)A[c]=analyze(A[c].kk,c)});JC.clear();learn();paintAll()}}
 function exportModel(){const O=OPT||{};const slim=r=>r?{g:r.g,v:r.v,train:r.train,test:r.test}:null;
  return{time:Date.now(),tf,g:P.g,ext:P.ext||{htf:false,exit:"fixed",crowd:false},active:ACTIVE,paused:!!O.paused,live:LIVEST,liveSince:(liveGet().cur||{}).since||null,
-  opt:{best:slim(O.best),chosen:slim(O.chosen),vres:(O.vres||[]).map(slim),top:(O.top||[]).map(slim),tested:O.tested,coins:O.coins,cutT:O.cutT},
+  opt:{best:slim(O.best),chosen:slim(O.chosen),vres:(O.vres||[]).map(slim),top:(O.top||[]).map(slim),tested:O.tested,coins:O.coins,cutT:O.cutT,ens:O.ens||null},pc:PC,
   grid:GRIDR&&GRIDR.list&&GRIDR.tf===tf?{...GRIDR,list:GRIDR.list.filter(g=>g.pass).slice(0,30)}:null}}
 function runOpt(){if(optBusy){setTimeout(runOpt,400);return}optimize()}
 function tstat(x){return x&&x.n>1&&x.sd>0?x.avg/x.sd*Math.sqrt(x.n):0}
@@ -191,8 +195,21 @@ async function optimize(){if(optBusy||!A.BTC||!A.BTC.B)return;optBusy=true;const
  let chosen=baseV;if(baseV){const tot=x=>x.n*x.avg,all=r=>tot(r.train)+tot(r.test),cand=vres.filter(r=>stratOK(r)&&tot(r.test)>tot(baseV.test)&&tot(r.train)>=tot(baseV.train)*.8&&all(r)>all(baseV)).sort((a,b)=>all(b)-all(a));if(cand.length)chosen=cand[0]; // 用「總共賺多少 R」比：過濾會減少交易次數，要確定少做之後總獲利沒變少
   const prevR=vres.find(r=>same(r.v,P.ext));if(prevR&&prevR!==chosen&&stratOK(prevR)&&all(chosen)<all(prevR)*1.2)chosen=prevR}
  const pass=chosen?stratOK(chosen):stratOK(best);
+ // 第三階段：融會貫通——每個幣從幾個好策略裡挑「在它自己過去資料上最好的」，再用沒看過的資料檢查這樣做是不是真的比單一策略好
+ let ens=null;const PCn={};
+ if(best&&pass){const ext=chosen?chosen.v:BASEX,cands=[best];["bo","pb","mr"].forEach(f=>{const r=ok.find(x=>x.g.fam===f);if(r&&!cands.includes(r))cands.push(r)});
+  if(cands.length>1){const per={};
+   for(const r of cands){const g={...P,...r.g,...ext};coins.forEach(c=>{const a=A[c],t=backtest(a.kk,sigs(a.kk,a.B,g,c).sg,g).tr;(per[c]=per[c]||[]).push({r,tr:t.filter(x=>x.time<cutT).map(x=>x.R),te:t.filter(x=>x.time>=cutT).map(x=>x.R)})});
+    $("optsum").textContent="🧠 AI 正在幫每個幣挑最適合的策略…";await new Promise(r=>setTimeout(r,0));if(tf!==myTf||myL!==loadId){optBusy=false;return}}
+   const sum=a=>a.reduce((x,y)=>x+y,0),eTr=[],eTe=[],bTe=[];
+   coins.forEach(c=>{const L=per[c];let pick=L[0];const b0=sum(L[0].tr);
+    L.slice(1).forEach(o=>{if(o.tr.length>=4&&sum(o.tr)/o.tr.length>=.3&&sum(o.tr)>=b0+2&&sum(o.tr)>sum(pick.tr))pick=o}); // 只用「挑選期」決定，門檻要明顯更好，避免碰運氣
+    eTr.push(...pick.tr);eTe.push(...pick.te);bTe.push(...L[0].te);if(pick!==L[0])PCn[c]=pick.r.g});
+   const E={train:summ(eTr),test:summ(eTe)},B0=summ(bTe),tot=x=>x.n*x.avg;
+   if(Object.keys(PCn).length&&stratOK(E)&&tot(E.test)>tot(B0)*1.1&&E.test.avg>=B0.avg*.8)ens={...E,base:B0,n:Object.keys(PCn).length,fams:[...new Set(Object.values(PCn).map(g=>g.fam))]}}}
+ PC=ens?PCn:{};
  if(best){Object.assign(P,best.g,chosen?chosen.v:BASEX);P.g=best.g;P.ext=chosen?chosen.v:BASEX}ACTIVE=pass;
- OPT={best,chosen,vres,pass,top:ok.slice(0,5),tested:res.length,coins:coins.length,cutT,time:Date.now()};
+ OPT={best,chosen,vres,pass,ens,top:ok.slice(0,5),tested:res.length,coins:coins.length,cutT,time:Date.now()};
  const hk="opt_"+tf,hist=lsg(hk,{h:[]});hist.g=best?best.g:null;hist.ext=P.ext;hist.pass=pass;hist.h.push({time:Date.now(),g:best?best.g:null,train:chosen?chosen.train:best?best.train:null,test:chosen?chosen.test:best?best.test:null,pass});hist.h=hist.h.slice(-20);lss(hk,hist);
  coins.forEach(c=>{A[c]=analyze(A[c].kk,c)});JC.clear();
  if(best){const k2=key(best.g);if(!LV.cur||LV.cur.key!==k2){if(LV.cur){const st=liveStatsOf(LV.cur);LV.hist.push({...st,key:LV.cur.key,g:LV.cur.g,since:LV.cur.since,until:nowT,status:"換成更好的規則"})}LV.cur={key:k2,g:best.g,since:nowT}}}
@@ -212,7 +229,7 @@ function paintOpt(){const el=$("opt");if(!el)return;const O=OPT,hist=(lsg("opt_"
  const b=O.best;
  $("optsum").innerHTML=O.paused?`🧠 AI 學習：⏸ 實戰表現太差，暫停進場訊號（${LIVEST.n} 筆，平均 ${f2(LIVEST.avg)}）`:O.pass?`🧠 AI 學習：✅ 找到有效規則（新資料平均 ${f2((O.chosen||b).test.avg)}）`:`🧠 AI 學習：⛔ 這個週期沒有規則通過驗證，暫停進場訊號`;
  let h=(O.fromCloud?`<p style="color:var(--up)">☁️ 這是雲端 24 小時一直在學習的結果（${hm(O.time)} 更新，每 5 分鐘自動同步），打開網頁不用重新學。</p>`:"")+`<p class="mut">用 ${O.coins} 個幣、各約 2000 根 ${tf} K線，試了 ${O.tested} 種規則組合，涵蓋三大類策略：突破回踩、順勢回檔、趨勢中的超跌反彈；每類再試不同參數、要不要跟 BTC 同方向、停損停利幾倍。<b>${hm(O.cutT)} 以前</b>的資料用來挑最好的，<b>之後</b>的資料完全不給它看，最後才拿來檢查是不是真的會賺。${O.fromCloud?'雲端每 5～15 分鐘就用最新K線重新學一次，你關掉網頁、手機鎖屏它也照樣在學。':'每 15 分鐘會用最新K線自動重新學一次，換成當下最強的那組。'}</p>`;
- if(b){const C=O.chosen||b;h+=`<p><b>目前最好的規則：</b>${pdesc(b.g)}。<br><b>升級：</b>${extDesc(P.ext)}。<br>挑選期：${C.train.n} 筆，勝率 ${C.train.win.toFixed(0)}%，平均 ${f2(C.train.avg)}<br>沒看過的新資料：${C.test.n} 筆，勝率 ${C.test.win.toFixed(0)}%，平均 ${f2(C.test.avg)}、可信度 ${tstat(C.test).toFixed(1)}</p>
+ if(b){const C=O.chosen||b;h+=`<p><b>目前最好的規則：</b>${pdesc(b.g)}。<br><b>升級：</b>${extDesc(P.ext)}。<br>${O.ens?`<b>🧩 融會貫通：</b>${O.ens.n} 個幣改用比較適合它的策略（${O.ens.fams.map(f=>FAMZH[f]).join("、")}），其他幣用上面的規則。沒看過的新資料上：每個幣用自己的方法 ${O.ens.test.n} 筆、平均 ${f2(O.ens.test.avg)}、總共 ${(O.ens.test.n*O.ens.test.avg).toFixed(0)}R；全部用同一個方法 ${O.ens.base.n} 筆、總共 ${(O.ens.base.n*O.ens.base.avg).toFixed(0)}R。<br>`:`<b>🧩 融會貫通：</b>有試過讓每個幣用不同策略，但在沒看過的資料上沒有比較好，所以全部用同一個規則。<br>`}挑選期：${C.train.n} 筆，勝率 ${C.train.win.toFixed(0)}%，平均 ${f2(C.train.avg)}<br>沒看過的新資料：${C.test.n} 筆，勝率 ${C.test.win.toFixed(0)}%，平均 ${f2(C.test.avg)}、可信度 ${tstat(C.test).toFixed(1)}</p>
  <p>${O.paused?"<b style='color:var(--dn)'>⏸ 回測雖然通過，但規則上線後真實發生的訊號（見下方實戰成績）10 筆以上平均虧超過 0.5R，代表最近行情跟過去不一樣。先暫停給進場訊號，等實戰表現回來或 AI 換到新規則。</b>":O.pass?"<b style='color:var(--up)'>新資料也賺錢 → 已套用這個規則產生進場訊號。</b>":"<b style='color:var(--dn)'>新資料上是虧的或筆數不夠 → 代表它只是剛好配合過去，不能信。這個週期暫停給你進場訊號，可以切換別的週期看看。</b>"}</p>`;
   if(O.vres&&O.vres.length)h+=`<p class="mut">三個升級的比較（都用同一套規則，看「沒看過的資料」）：</p><table><tr><th>升級組合</th><th>新資料</th><th>勝率</th><th>平均</th><th>挑選期總R</th></tr>`+O.vres.map(r=>`<tr${same(r.v)?' style="font-weight:700"':''}><td class="mut">${extDesc(r.v)}</td><td>${r.test.n}</td><td>${r.test.win.toFixed(0)}%</td><td>${f2(r.test.avg)}${stratOK(r)?"":" ✗"}</td><td>${(r.train.n*r.train.avg).toFixed(0)}</td></tr>`).join("")+"</table><p class='mut'>粗體＝目前採用。✗＝沒通過真錢門檻。採用條件：沒看過的資料上總獲利（筆數×平均）比原本高、兩段合計也比原本高，而且挑選期不能比原本差超過 20%。</p>";}
  h+="<p class='mut'>挑選期排名前 5（依「穩定分數」排：平均要賺、波動要小、筆數要夠，而且相鄰參數也要好）：</p><table><tr><th>規則</th><th>筆數</th><th>勝率</th><th>平均</th></tr>"+O.top.map(r=>`<tr><td class="mut">${pdesc(r.g)}</td><td>${r.train.n}</td><td>${r.train.win.toFixed(0)}%</td><td>${f2(r.train.avg)}</td></tr>`).join("")+"</table>";
@@ -323,7 +340,7 @@ function buildBrief(){const el=$("brief");if(!el)return;briefDone=true;const now
     miss.slice(0,12).map(m=>`<tr><td>${hm(m.g.time+TFMS[tf])}</td><td>${m.c}${m.ok?"":"<span class='mut'>（歷史不佳）</span>"}</td><td>${m.g.s>0?"做多":"做空"}</td><td style="color:${m.o.st==="停利"?"var(--up)":m.o.st==="停損"?"var(--dn)":"var(--mut)"}">${m.o.st}${m.o.st==="進行中"?` ${f2(m.o.R)}`:""}</td></tr>`).join("")+"</table>";
    const late=miss.filter(m=>m.o.st==="進行中"&&m.o.R>.5);if(late.length)h+=`<p class="mut" style="margin-left:8px">已經跑掉的（${[...new Set(late.map(m=>m.c))].join("、")}）不要追，等下一次機會。</p>`}}
  // 3. AI 學到的
- h+=`<p><b>③ ${OPT&&OPT.fromCloud?'AI 目前學到的結果（雲端持續學習）':'AI 剛剛重新學習的結果'}</b></p><p style="margin-left:8px">${OPT&&OPT.best?(OPT.pass?`✅ 用「${pdesc(P)}」＋升級「${extDesc(P.ext)}」，沒看過的新資料上平均 ${f2((OPT.chosen||OPT.best).test.avg)}（${(OPT.chosen||OPT.best).test.n} 筆，勝率 ${(OPT.chosen||OPT.best).test.win.toFixed(0)}%）。`:`⛔ ${tf} 目前沒有規則通過驗證，這個週期先不做，可以換週期看看。`):"學習中…"}</p>`;
+ h+=`<p><b>③ ${OPT&&OPT.fromCloud?'AI 目前學到的結果（雲端持續學習）':'AI 剛剛重新學習的結果'}</b></p><p style="margin-left:8px">${OPT&&OPT.best?(OPT.pass?`✅ 用「${pdesc(P)}」＋升級「${extDesc(P.ext)}」，沒看過的新資料上平均 ${f2((OPT.chosen||OPT.best).test.avg)}（${(OPT.chosen||OPT.best).test.n} 筆，勝率 ${(OPT.chosen||OPT.best).test.win.toFixed(0)}%）。${OPT.ens?`另外有 ${OPT.ens.n} 個幣改用更適合它的策略，整體在新資料上平均 ${f2(OPT.ens.test.avg)}（${OPT.ens.test.n} 筆）。`:""}`:`⛔ ${tf} 目前沒有規則通過驗證，這個週期先不做，可以換週期看看。`):"學習中…"}</p>`;
  // 4. 現在最好的
  const r=ACTIVE?COINS.map(rankOf).filter(x=>x.stage>=3&&x.qual>0).sort((a,b)=>b.stage-a.stage||b.qual-a.qual||a.dist-b.dist).slice(0,3):[];
  h+=`<p><b>④ 現在最好的選擇</b></p>`+(r.length?r.map((x,i)=>`<div style="margin-left:8px" onclick="sel('${x.c}')">${i+1}. <b>${x.c}</b> ${x.stage===4?`<b style="color:${x.d>0?"var(--up)":"var(--dn)"}">現在可${x.d>0?"做多":"做空"}</b>`:`<span style="color:var(--mut)">⏳ 還不能買（等K線收盤確認${x.d>0?"做多":"做空"}）</span>`}・歷史勝率 ${x.bt.win.toFixed(0)}%・平均 ${f2(x.bt.avg)}（${x.bt.n} 筆）<span class="mut"> 看K線 ›</span></div>`).join(""):"<p class='mut' style='margin-left:8px'>現在沒有好機會。沒有好機會時不進場，也是賺錢的一部分。</p>");
@@ -459,7 +476,7 @@ function paintRec(){const el=$("rec");if(!el)return;const sc=$("scan");if(sc&&+s
  const all=COINS.map(rankOf),dirN=all.filter(x=>x.d!==0).length,nearN=all.filter(x=>x.stage>=3).length,goodN=all.filter(x=>x.qual>0).length,nowN=all.filter(x=>x.stage===4).length;
  const funnel=`<div class="mut" style="margin-top:6px">${FUT?"只掃有幣安 USDT 永續合約的幣（合約清單來源："+FUTSRC+"）。":"⚠️ 這次抓不到合約清單，下面可能混有沒有合約的幣，請下單前確認。"}掃描 ${COINS.length} 個幣 → 有明確方向 ${dirN} 個 → 接近或可以進場 ${nearN} 個（現在就能進 ${nowN} 個）→ 這個幣過去用目前策略是賺的 ${goodN} 個。兩個條件都要過才推薦。</div>`;
  if(!ACTIVE){el.innerHTML=`<span class='mut'>AI 在 ${tf} 找不到能通過驗證的策略，所以不推薦。可以切換其他週期。</span>`+funnel;return}
- const row=(x,i,watch)=>{const nm=x.d>0?"做多":"做空";return`<div class="row" style="padding:6px 0;border-bottom:1px solid var(--bd)" onclick="sel('${x.c}')"><div><b>${i+1}. ${x.c}</b> <span class="tag ${watch?"":x.d>0?"long":"short"}">${watch?"觀察中・"+nm+"方向":x.stage===4?"現在可"+nm:"⏳ 還不能買・等收盤確認"+nm}</span><div class="mut">歷史勝率 ${x.bt.win.toFixed(0)}%・平均 ${f2(x.bt.avg)}（${x.bt.n} 筆）・${x.q.txt}<br><span style="color:var(--tx)">${planTxt(x.c,true)}</span></div></div><span class="mut">看K線 ›</span></div>`};
+ const row=(x,i,watch)=>{const nm=x.d>0?"做多":"做空";return`<div class="row" style="padding:6px 0;border-bottom:1px solid var(--bd)" onclick="sel('${x.c}')"><div><b>${i+1}. ${x.c}</b> <span class="tag ${watch?"":x.d>0?"long":"short"}">${watch?"觀察中・"+nm+"方向":x.stage===4?"現在可"+nm:"⏳ 還不能買・等收盤確認"+nm}</span><div class="mut">${PC[x.c]?"🧩 "+FAMZH[PC[x.c].fam]+"・":""}歷史勝率 ${x.bt.win.toFixed(0)}%・平均 ${f2(x.bt.avg)}（${x.bt.n} 筆）・${x.q.txt}<br><span style="color:var(--tx)">${planTxt(x.c,true)}</span></div></div><span class="mut">看K線 ›</span></div>`};
  const r=all.filter(x=>x.stage>=3&&x.qual>0).sort((a,b)=>b.stage-a.stage||b.qual-a.qual||a.dist-b.dist).slice(0,3);
  if(r.length){el.innerHTML=r.map((x,i)=>row(x,i,false)).join("")+funnel;return}
  const w=all.filter(x=>x.d!==0&&x.qual>0&&x.stage>=1).sort((a,b)=>a.dist-b.dist||b.qual-a.qual).slice(0,3);
@@ -676,6 +693,9 @@ async function toggleWake(){wantWake=!wantWake;if(wantWake){try{wl=await navigat
 document.addEventListener("visibilitychange",async()=>{if(document.visibilityState!=="visible")return;
  if(wantWake){try{wl=await navigator.wakeLock.request("screen")}catch(e){}}
  if(Date.now()-lastMsg>15000){briefDone=false;prevSeen=lsg("lastSeen",prevSeen);refresh()}});
+analyze=(f=>(k,c)=>withC(c,()=>f(k,c)))(analyze);judge0=(f=>c=>withC(c,()=>f(c)))(judge0);planOf=(f=>c=>withC(c,()=>f(c)))(planOf);
+planTxt=(f=>(c,s)=>withC(c,()=>f(c,s)))(planTxt);rankOf=(f=>c=>withC(c,()=>f(c)))(rankOf);verdict=(f=>c=>withC(c,()=>f(c)))(verdict);
+evalPos=(f=>p=>withC(p&&p.c,()=>f(p)))(evalPos);paint=(f=>()=>withC(cur,f))(paint);
 setInterval(checkAlerts,2000);setInterval(paintLog,5000);setInterval(()=>{if(document.visibilityState!=="visible")return;if(CLOUD)refreshModel();else runOpt()},CLOUD?3e5:9e5);setInterval(()=>{if(CLOUD&&document.visibilityState==="visible")refreshModel()},3e5);setInterval(()=>{checkPos();paintPos();paintRec()},2000);
 $("eq").oninput=paint;addEventListener("resize",paint);setInterval(paint,1000);load();
 </script>
