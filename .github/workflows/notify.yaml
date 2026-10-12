@@ -5,6 +5,7 @@ on:
   workflow_dispatch:
 permissions:
   contents: write
+  actions: write
 concurrency:
   group: crypto-notify
   cancel-in-progress: false
@@ -43,3 +44,8 @@ jobs:
             git commit -m "更新累積經驗" -q
             git pull --rebase -q && git push -q || echo "push skipped"
           fi
+      - name: start next round
+        if: success() || failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run "${{ github.workflow }}" --ref "${{ github.ref_name }}" -R "${{ github.repository }}" || echo "下一輪沒啟動成功，等排程補上"
