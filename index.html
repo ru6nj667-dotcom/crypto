@@ -177,7 +177,7 @@ async function optimize(){if(optBusy||!A.BTC||!A.BTC.B)return;optBusy=true;const
    vres.push({v,train:summ(tr.filter(x=>x.time<cutT).map(x=>x.R)),test:summ(tr.filter(x=>x.time>=cutT).map(x=>x.R))});
    $("optsum").textContent=`🧠 AI 正在測試升級… ${vres.length}/8`;await new Promise(r=>setTimeout(r,0));if(tf!==myTf||myL!==loadId){optBusy=false;return}}}
  const same=(a,b)=>a&&b&&a.htf===b.htf&&a.exit===b.exit&&a.crowd===b.crowd,baseV=vres[0];
- let chosen=baseV;if(baseV){const tot=x=>x.n*x.avg,all=r=>tot(r.train)+tot(r.test),cand=vres.filter(r=>stratOK(r)&&tot(r.test)>tot(baseV.test)&&tot(r.train)>=tot(baseV.train)*.8&&all(r)>all(baseV)).sort((a,b)=>all(b)-all(a)); // 用「總共賺多少 R」比：過濾會減少交易次數，要確定少做之後總獲利沒變少if(cand.length)chosen=cand[0];
+ let chosen=baseV;if(baseV){const tot=x=>x.n*x.avg,all=r=>tot(r.train)+tot(r.test),cand=vres.filter(r=>stratOK(r)&&tot(r.test)>tot(baseV.test)&&tot(r.train)>=tot(baseV.train)*.8&&all(r)>all(baseV)).sort((a,b)=>all(b)-all(a));if(cand.length)chosen=cand[0]; // 用「總共賺多少 R」比：過濾會減少交易次數，要確定少做之後總獲利沒變少
   const prevR=vres.find(r=>same(r.v,P.ext));if(prevR&&prevR!==chosen&&stratOK(prevR)&&all(chosen)<all(prevR)*1.2)chosen=prevR}
  const pass=chosen?stratOK(chosen):stratOK(best);
  if(best){Object.assign(P,best.g,chosen?chosen.v:BASEX);P.g=best.g;P.ext=chosen?chosen.v:BASEX}ACTIVE=pass;
