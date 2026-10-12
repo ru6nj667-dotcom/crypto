@@ -162,6 +162,10 @@ if (st.news) {
 }
 if (later.includes("news")) await send(st.news ? `📰 市場情緒：${st.news.fng ? "恐懼貪婪 " + st.news.fng.value + "（" + st.news.fng.zh + "）" : "?"}\n` + (Object.keys(st.news.risk || {}).length ? "⚠️ 有負面新聞的幣：" + Object.entries(st.news.risk).map(([c, r]) => c + " " + r.kw.split("（")[0]).join("、") + "\n" : "") + "\n最新標題：\n" + st.news.items.slice(0, 6).map(n => "• " + n.title).join("\n") : "📰 還沒抓到新聞，下一輪再試。");
 
+// ---- 雲端大腦：把學習結果存成 data/model.json，網頁打開時直接用 ----
+{ const m = JSON.parse(G("JSON.stringify(exportModel())")), sig = JSON.stringify([m.g, m.ext, m.active, m.paused]);
+  if (sig !== st.modelSig || !st.modelW || Date.now() - st.modelW > 55 * 6e4) { fs.mkdirSync("data", { recursive: true }); fs.writeFileSync("data/model.json", JSON.stringify(m)); st.modelSig = sig; st.modelW = Date.now(); console.log(`已更新 data/model.json（規則${m.active ? "通過" : "未通過／暫停"}）`); } }
+
 // ---- 累積經驗：記下每個訊號，之後用K線算出真實結果，永久保存 ----
 st.journal ??= [];
 if (!st.journal.length) { try { st.journal = JSON.parse(fs.readFileSync("data/journal.json", "utf8")); console.log(`從 data/journal.json 載入 ${st.journal.length} 筆經驗`); } catch { } }
