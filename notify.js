@@ -51,6 +51,7 @@ const HELP = `指令：
 /close 幣　平倉後移除
 /equity 1000　設定本金（算下單金額用）
 /status 現在推薦
+/report 累積經驗報告
 提醒：大約每 5～15 分鐘檢查一次，停損一定要在交易所掛好。`;
 const cmds = [];
 if (!TOKEN) console.log("❌ 沒有讀到 TG_TOKEN：請到 Settings → Secrets → Actions 新增，名稱要完全是 TG_TOKEN");
@@ -87,6 +88,7 @@ if (!ok) {
 
 // 持倉指令
 const posCmd = [];
+const later = [];
 for (const t of cmds) {
   const a = t.split(/\s+/), c0 = (a[0] || "").toLowerCase();
   if (c0 === "/long" || c0 === "/short") {
@@ -103,9 +105,31 @@ for (const t of cmds) {
   } else if (c0 === "/status") {
     posCmd.push(G(`(()=>{const r=COINS.map(rankOf).filter(x=>x.stage>=3&&x.qual>0).sort((a,b)=>b.stage-a.stage||b.qual-a.qual||a.dist-b.dist).slice(0,5);
       return (ACTIVE?"目前策略："+pdesc(P):"⛔ "+tf+" 目前沒有規則通過驗證，不給訊號")+"\\n\\n"+(r.length?r.map((x,i)=>(i+1)+". "+x.c+" "+x.q.txt+"\\n"+planTxt(x.c,true)).join("\\n"):"現在沒有接近進場的好機會。")})()`));
+  } else if (c0 === "/report" || t === "報告") {
+    later.push("report");
   } else if (c0 === "/start" || c0 === "/help") posCmd.push("✅ 已連上你的監控機器人（週期 " + TF + "）。\n\n" + HELP);
 }
 for (const t of posCmd) await send(t);
+
+// ---- 累積經驗：記下每個訊號，之後用K線算出真實結果，永久保存 ----
+st.journal ??= [];
+if (!st.journal.length) { try { st.journal = JSON.parse(fs.readFileSync("data/journal.json", "utf8")); console.log(`從 data/journal.json 載入 ${st.journal.length} 筆經驗`); } catch { } }
+globalThis.__J = st.journal;
+const jr = JSON.parse(G(`JSON.stringify((()=>{const J=globalThis.__J,ms=TFMS[tf],now=Date.now(),have=new Set(J.map(r=>r.c+"|"+r.tf+"|"+r.t+"|"+r.fam));let added=0,done=0;
+ COINS.forEach(c=>{const a=A[c];if(!a||!a.sg)return;a.sg.forEach(g=>{if(g.time<now-6*ms)return;const k=c+"|"+tf+"|"+g.time+"|"+P.fam;if(have.has(k))return;have.add(k);
+  J.push({c,tf,t:g.time,s:g.s,fam:P.fam,stop:g.stop,rr:P.rr,f:g.f,btc:btcRel(g.time,g.s)});added++})});
+ const F=.0005,S=.0003;J.forEach(r=>{if(r.R!==undefined||r.tf!==tf)return;const a=A[r.c];if(!a||!a.kk){if(now-r.t>14*864e5){r.R=0;r.out="無資料"}return}
+  const k=a.kk,i=k.findIndex(b=>b.t>r.t);if(i<0)return;const e=k[i].o*(1+S*r.s),dist=(e-r.stop)*r.s;if(!(dist>0)){r.R=0;r.out="無效";return}
+  const tp=e+r.s*r.rr*dist;let ex=null,out="";for(let j=i;j<Math.min(k.length,i+48);j++){const b=k[j];if(r.s>0?b.l<=r.stop:b.h>=r.stop){ex=r.stop;out="停損";break}if(r.s>0?b.h>=tp:b.l<=tp){ex=tp;out="停利";break}}
+  if(ex===null){if(k.length-i<48)return;ex=k[i+47].c;out="到期"}ex*=1-S*r.s;r.R=+(((ex-e)*r.s-e*F*2)/dist).toFixed(3);r.out=out;done++});
+ if(J.length>20000)J.splice(0,J.length-20000);JOURNAL=J;jAnalyze();JC.clear();
+ return{added,done,total:J.length,closed:J.filter(r=>r.R!==undefined).length}})())`));
+st.journal = globalThis.__J;
+console.log(`累積經驗：新增 ${jr.added} 筆訊號、${jr.done} 筆有了結果；總共 ${jr.total} 筆（已有結果 ${jr.closed} 筆）`);
+if (!st.lastJW || Date.now() - st.lastJW > 6 * 36e5) { fs.mkdirSync("data", { recursive: true }); fs.writeFileSync("data/journal.json", JSON.stringify(st.journal)); st.lastJW = Date.now(); console.log("已寫入 data/journal.json（會存進 GitHub 專案永久保留）"); }
+
+if (later.includes("report")) await send(G(`(()=>{const S=JSTAT;if(!S||!S.n)return"📚 累積經驗：還在收集中（目前有結果的 0 筆），每個訊號出結果後都會記下來。";
+ return "📚 累積經驗（"+tf+"）\\n從 "+hm(S.since)+" 起共 "+S.n+" 筆有結果\\n勝率 "+S.all.win.toFixed(0)+"%・平均每筆 "+f2(S.all.avg)+"\\n\\n"+(S.bad.length||S.badC.length?"已自動避開："+S.bad.map(x=>x[2]+"「"+x[1]+"」").concat(S.badC).join("、"):"目前還沒有足夠證據要避開哪種情況（每種情況至少 30 筆才判斷）。")})()`));
 
 // ---- 自動提醒 ----
 const msgs = JSON.parse(G(`JSON.stringify((()=>{const out=[];

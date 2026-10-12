@@ -53,6 +53,7 @@ input{width:90px;font:inherit;padding:4px 6px;border:1px solid var(--bd);border-
 <div class="card"><span class="mut">本金</span> <input id="eq" type="number" value="1000"> <span class="mut">USDT · 單筆風險 1% · 槓桿上限 2 倍</span></div>
 <div class="card"><div class="tabs" id="sides"></div><div class="mut" id="sidehint"></div><table><thead><tr><th>幣種（點一下看K線）</th><th>現價</th><th>狀態</th></tr></thead><tbody id="list"></tbody></table></div>
 <details class="card"><summary id="optsum">🧠 AI 學習中…</summary><div id="opt"></div></details>
+<details class="card"><summary id="jsum">📚 累積經驗</summary><div id="journal"></div></details>
 <details class="card"><summary id="learnsum">🔍 錯誤來源分析</summary><div id="learn"></div></details>
 <details class="card"><summary id="logsum">📒 24 小時內的訊號</summary><div id="log"></div></details>
 <details class="card"><summary>📘 什麼時候叫你進場、停損停利怎麼算</summary><ol class="mut" id="rules" style="margin:6px 0 0;padding-left:20px"></ol></details>
@@ -188,6 +189,28 @@ function learn(){const all=[];COINS.forEach(c=>{const a=A[c];if(a&&a.bt&&a.bt.tr
   Object.keys(g).forEach(b=>{const st=summ(g[b]),isBad=st.n>=20&&st.avg<0;rows.push({f,name,b,...st,isBad});if(isBad)bad.push([f,b])})});
  const hit=x=>bad.find(([f,b])=>bucket(f,x.F[f],cuts)===b),base0=summ(test.map(x=>x.R)),filt=summ(test.filter(x=>!hit(x)).map(x=>x.R));
  LEARN={rows,bad,cuts,base:base0,filt,applied:bad.length>0&&filt.n>=10&&filt.avg>base0.avg&&filt.avg>0,ntrain:train.length,ntest:test.length,all:summ(all.map(x=>x.R))}}
+/* ===== 累積經驗：雲端每次檢查都把訊號和後來的結果存進 data/journal.json，永久累積 ===== */
+let JOURNAL=null,JSTAT=null;
+const JCUT={vol:[1.2,2],trend:[.5,2],atrp:[.5,1.5],ext:[.5,2]};
+function jBucket(f,v){if(f==="btc"||f==="wick")return v;const c=JCUT[f];return v<c[0]?"低":v<c[1]?"中":"高"}
+function jFeats(r){return{...r.f,btc:r.btc}}
+function jAnalyze(){const J=(JOURNAL||[]).filter(r=>r.tf===tf&&r.R!==undefined&&/停利|停損|到期/.test(r.out||""));if(!J.length){JSTAT={n:0};return}
+ J.sort((a,b)=>a.t-b.t);const rows=[],bad=[],allAvg=summ(J.map(r=>r.R)).avg;
+ FEAT.forEach(([f,name])=>{const g={};J.forEach(r=>{const b=jBucket(f,jFeats(r)[f]);(g[b]=g[b]||[]).push(r)});
+  Object.keys(g).forEach(b=>{const arr=g[b],st=summ(arr.map(r=>r.R)),h=Math.floor(arr.length/2),a1=summ(arr.slice(0,h).map(r=>r.R)),a2=summ(arr.slice(h).map(r=>r.R));
+   const isBad=st.n>=30&&st.avg<0&&a1.avg<0&&a2.avg<0&&st.avg<allAvg-.15;rows.push({name,b,...st,isBad});if(isBad)bad.push([f,b,name])})}); // 前後兩半都虧才算，避免被運氣騙
+ const byC={};J.forEach(r=>{(byC[r.c]=byC[r.c]||[]).push(r.R)});const badC=Object.keys(byC).filter(c=>byC[c].length>=20&&summ(byC[c]).avg<-.2);
+ JSTAT={n:J.length,all:summ(J.map(r=>r.R)),since:J[0].t,rows,bad,badC}}
+function journalBlock(c,g){if(!JSTAT||!JSTAT.n)return null;if(JSTAT.badC.includes(c))return"這個幣累積的實戰經驗是虧的";
+ const F={...g.f,btc:btcRel(g.time,g.s)},m=JSTAT.bad.find(([f,b])=>jBucket(f,F[f])===b);return m?`累積經驗顯示「${m[2]}：${m[1]}」常做錯`:null}
+async function loadJournal(){try{const r=await fetch("data/journal.json?"+Date.now(),{cache:"no-store"});if(r.ok){JOURNAL=await r.json();jAnalyze();JC.clear();paintJournal()}}catch(e){}}
+function paintJournal(){const el=$("journal");if(!el)return;const S=JSTAT;
+ if(!S||!S.n){$("jsum").textContent="📚 累積經驗：還在收集中";el.innerHTML="<p class='mut'>雲端每次檢查都會記下訊號和後來的結果，每 6 小時存一次。累積越多，判斷越可靠。</p>";return}
+ $("jsum").textContent=`📚 累積經驗：${S.n} 筆（${tf}）・勝率 ${S.all.win.toFixed(0)}%・平均 ${f2(S.all.avg)}`;
+ let h=`<p class="mut">從 ${hm(S.since)} 開始，雲端記下的每一個真實訊號和後來的結果（停利、停損或到期）。某種情況至少 30 筆、明顯比平均差、而且前後兩段時間都虧，才判定「常做錯」並自動避開。</p><table><tr><th>情況</th><th></th><th>筆數</th><th>勝率</th><th>平均</th></tr>`+
+  S.rows.map(r=>`<tr${r.isBad?' style="color:var(--dn)"':''}><td>${r.name}</td><td>${r.b}</td><td>${r.n}</td><td>${r.win.toFixed(0)}%</td><td>${f2(r.avg)}${r.isBad?" ✗":""}</td></tr>`).join("")+"</table>";
+ if(S.bad.length||S.badC.length)h+=`<p><b>已自動避開：</b>${S.bad.map(x=>x[2]+"「"+x[1]+"」").concat(S.badC.map(c=>c+"（實戰虧）")).join("、")}</p>`;else h+="<p class='mut'>目前還沒有足夠證據要避開哪種情況。</p>";
+ el.innerHTML=h}
 function learnBlock(g){if(!LEARN||!LEARN.applied)return null;const F=featsOf(g),m=LEARN.bad.find(([f,b])=>bucket(f,F[f],LEARN.cuts)===b);
  return m?`${FEAT.find(x=>x[0]===m[0])[1]}「${m[1]}」`:null}
 function paintLearn(){const L=LEARN,el=$("learn");if(!el)return;
@@ -260,7 +283,7 @@ function buildBrief(){const el=$("brief");if(!el)return;briefDone=true;const now
 setInterval(()=>{if(briefDone&&document.visibilityState==="visible")lss("lastSeen",Date.now())},3e4);
 document.addEventListener("visibilitychange",()=>{if(document.visibilityState==="hidden"&&briefDone)lss("lastSeen",Date.now())});
 
-function paintAll(){paintOpt();paintLearn();paintRules();paint();paintLog();paintRec();paintPos()}
+function paintAll(){paintJournal();paintOpt();paintLearn();paintRules();paint();paintLog();paintRec();paintPos()}
 /* ===== 預估交易計畫：還沒到進場點時，先算好「大概在哪進、停損停利多少、下多少」 ===== */
 function planOf(c){const a=A[c],j=judge(c);if(!a||!a.e50)return null;const k=D[c],live=k&&k.length?k[k.length-1].c:a.c;
  if(j.sig){const s=j.sig.s,risk=Math.abs(s.entry-s.stop),lo=s.s>0?s.entry-.3*risk:s.entry-.5*risk,hi=s.s>0?s.entry+.5*risk:s.entry+.3*risk;
@@ -346,7 +369,7 @@ function judge0(coin){
   if(d<=0)return{txt:"已碰停損，不追",cls:"",why:"剛出現的訊號，但現價已經碰到停損位置，這筆作廢。"};
   if((live-s.entry)*s.s>.5*sd)return{txt:"已跑太遠，不追",cls:"",why:"剛出現訊號，但價格已經往有利方向跑太多，現在追進去停損太遠、不划算。"};
   if(rr<1.2)return{txt:"報酬不足，等待",cls:"",why:"以現價計算，離停利太近、離停損太遠，風險報酬不到 1.2，不做。"};
-  const bt=a.bt,lb=learnBlock(s),weak=!ACTIVE||bt.n<3||bt.avg<=0||!!lb;
+  const bt=a.bt,lb=learnBlock(s)||journalBlock(coin,s),weak=!ACTIVE||bt.n<3||bt.avg<=0||!!lb;
   const until=hm(a.lastT+2*TFMS[tf]);
   return{txt:"候選"+name+(!ACTIVE?"・規則未通過":lb?"・學習排除":weak?"・歷史不佳":""),cls:weak?"":cls,weak,sig:{s,tp,rr,d,live},
    why:`${P.fam==="pb"?(s.s>0?"多頭回檔後 RSI 重新轉強":"空頭反彈後 RSI 重新轉弱"):P.fam==="mr"?(s.s>0?"多頭中超跌後轉強":"空頭中超漲後轉弱"):P.retest?(s.s>0?"突破後回踩守住":"跌破後反彈被壓回"):(s.s>0?"收盤突破":"收盤跌破")}。現在可考慮${name}，停損 ${fp(s.stop)}、停利 ${fp(tp)}。有效到 ${until}（下一根K線收盤），之後作廢。`+(!ACTIVE?"但 AI 在這個週期找不到能通過驗證的規則，不建議進場。":lb?`但這筆屬於${lb}，過去這種情況多半做錯，不建議。`:weak?"但此規則在這個幣過去不賺錢，不建議。":"")}}
@@ -390,7 +413,7 @@ async function load(){const my=++loadId;loading=true;
  if(my!==loadId)return;
  COINS=COINS.filter(c=>D[c]&&D[c].length>300);
  COINS.forEach(c=>{if(A[c]&&A[c].kk)A[c]=analyze(A[c].kk)});
- lastMsg=Date.now();loading=false;learn();connect();paintAll();if(fail.length)setConn(`已連線（${fail.join("、")} 抓取失敗，先略過）`,"ok");setTimeout(runOpt,300);
+ lastMsg=Date.now();loading=false;learn();connect();paintAll();if(fail.length)setConn(`已連線（${fail.join("、")} 抓取失敗，先略過）`,"ok");setTimeout(runOpt,300);loadJournal();
 }
 let refreshing=false;
 async function refresh(){if(loading||refreshing||!COINS.length){if(!COINS.length)load();return}refreshing=true;const my=loadId;let needFull=false;setConn("更新最新行情中（畫面保持不動）…","");
