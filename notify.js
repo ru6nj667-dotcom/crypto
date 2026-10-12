@@ -97,6 +97,21 @@ st.newsT ??= 0;
 if (Date.now() - st.newsT > 50 * 6e4 || !st.news) { const n = await getNews(); if (n.items.length || n.fng) { st.news = n; st.newsT = Date.now(); console.log(`新聞：${n.items.length} 則標題、恐懼貪婪 ${n.fng ? n.fng.value : "?"}、下架公告 ${n.delist.length} 個幣`); } else console.log("新聞：這次抓不到（下次再試）"); }
 globalThis.__NEWS = st.news || null;
 
+// ---- 幣安 USDT 永續合約清單（只推薦有合約的幣） ----
+async function getFut() {
+  try { const j = JSON.parse(await fetchText("https://fapi.binance.com/fapi/v1/exchangeInfo")); const l = j.symbols.filter(x => x.contractType === "PERPETUAL" && x.quoteAsset === "USDT" && x.status === "TRADING").map(x => x.symbol); if (l.length > 50) return { l, src: "幣安合約" }; } catch { }
+  try { const j = JSON.parse(await fetchText("https://api.coingecko.com/api/v3/derivatives/exchanges/binance_futures?include_tickers=unexpired")); const l = [...new Set((j.tickers || []).map(t => ({ c: String(t.contract_type || "").toLowerCase(), s: String(t.symbol || ((t.base || "") + (t.target || ""))).toUpperCase().replace(/[^A-Z0-9]/g, "") })).filter(t => t.c === "perpetual" && /USDT$/.test(t.s)).map(t => t.s))]; if (l.length > 50) return { l, src: "CoinGecko（幣安合約）" }; } catch { }
+  return null;
+}
+if (!st.fut) { try { const f = JSON.parse(fs.readFileSync("data/futures.json", "utf8")); if (f.list && f.list.length > 50) st.fut = f; } catch { } }
+if (!st.fut || Date.now() - st.fut.time > 6 * 36e5) {
+  const f = await getFut();
+  if (f) { st.fut = { time: Date.now(), list: f.l, src: f.src }; fs.mkdirSync("data", { recursive: true }); fs.writeFileSync("data/futures.json", JSON.stringify(st.fut)); console.log(`合約清單：${f.l.length} 個 USDT 永續合約（來源 ${f.src}），已寫入 data/futures.json`); }
+  else console.log("合約清單：這次抓不到" + (st.fut ? "，先用上次的" : "，這次不過濾"));
+}
+globalThis.__FUTSET = true;
+globalThis.__FUT = st.fut && Date.now() - st.fut.time < 7 * 864e5 ? st.fut.list : null;
+
 // ---- 執行網頁程式（index.html 裡的同一份邏輯） ----
 const html = fs.readFileSync("index.html", "utf8");
 let code = html.match(/<script>([\s\S]*)<\/script>/)[1];
@@ -189,9 +204,10 @@ if (later.includes("report")) await send(G(`(()=>{const S=JSTAT;if(!S||!S.n)retu
 G("lastMsg=Date.now();JC.clear()"); // 雲端沒有即時連線：計算前把行情時間標成剛更新，避免被當成斷線而漏掉訊號
 const msgs = JSON.parse(G(`JSON.stringify((()=>{const out=[];
  COINS.forEach(c=>{const a=A[c];if(!a)return;const q=judge(c);
-  if(q.sig&&!q.weak){const p=planOf(c),v=verdict(c);if(!p||!v||!v.ok)return;out.push({k:"sig|"+tf+"|"+c+"|"+a.lastT,t:"✅ 可以進場："+(q.sig.s.s>0?"做多":"做空")+" "+c+"（"+tf+"，"+v.items.length+" 項檢查全部通過）\\n傳訊時現價 "+fp(p.live)+"\\n進場區間 "+fp(p.lo)+"～"+fp(p.hi)+"\\n⚠️ "+(q.sig.s.s>0?"現價高於 "+fp(p.hi):"現價低於 "+fp(p.lo))+" 就不要追，這筆放掉\\n建議用限價單掛在區間內，同時設好停損停利\\n停損 "+fp(p.stop)+"\\n"+(P.exit==="trail"?"第一目標 "+fp(p.tp)+"（到了不賣：停損移到成本，之後跟著價格移動）":"停利 "+fp(p.tp))+"\\n有效到這根K線收盤（還有 "+closeIn(c)+"）\\n歷史勝率 "+a.bt.win.toFixed(0)+"%・平均 "+f2(a.bt.avg)+"（"+a.bt.n+" 筆）"})}
-  else if(ACTIVE&&a.bt&&a.bt.n>=5&&a.bt.avg>0){const p=planOf(c);if(p&&!p.now&&p.inZone)out.push({k:"zone|"+tf+"|"+c+"|"+a.lastT,t:"⏰ "+c+" 進入"+(p.s>0?"做多":"做空")+"預估區 "+fp(p.lo)+"～"+fp(p.hi)+"（"+tf+"）\\nK線 "+closeIn(c)+" 後收盤，收盤符合條件才會變成可以進場。"})}});
+  if(q.sig&&!q.weak){const p=planOf(c),v=verdict(c);if(!p||!v||!v.ok)return;out.push({c,k:"sig|"+tf+"|"+c+"|"+a.lastT,t:"✅ 可以進場："+(q.sig.s.s>0?"做多":"做空")+" "+c+"（"+tf+"，"+v.items.length+" 項檢查全部通過）\\n傳訊時現價 "+fp(p.live)+"\\n進場區間 "+fp(p.lo)+"～"+fp(p.hi)+"\\n⚠️ "+(q.sig.s.s>0?"現價高於 "+fp(p.hi):"現價低於 "+fp(p.lo))+" 就不要追，這筆放掉\\n建議用限價單掛在區間內，同時設好停損停利\\n停損 "+fp(p.stop)+"\\n"+(P.exit==="trail"?"第一目標 "+fp(p.tp)+"（到了不賣：停損移到成本，之後跟著價格移動）":"停利 "+fp(p.tp))+"\\n有效到這根K線收盤（還有 "+closeIn(c)+"）\\n歷史勝率 "+a.bt.win.toFixed(0)+"%・平均 "+f2(a.bt.avg)+"（"+a.bt.n+" 筆）"})}
+  else if(ACTIVE&&a.bt&&a.bt.n>=5&&a.bt.avg>0){const p=planOf(c);if(p&&!p.now&&p.inZone)out.push({c,k:"zone|"+tf+"|"+c+"|"+a.lastT,t:"⏰ "+c+" 進入"+(p.s>0?"做多":"做空")+"預估區 "+fp(p.lo)+"～"+fp(p.hi)+"（"+tf+"）\\nK線 "+closeIn(c)+" 後收盤，收盤符合條件才會變成可以進場。"})}});
  POS.forEach(p=>{const e=evalPos(p);if(e.lv!=="ok"&&e.px)out.push({k:"pos|"+p.id,msg:e.msg,t:"💼 "+p.c+" "+(p.s>0?"做多":"做空")+"："+e.msg+(e.pnl!==undefined?"\\n目前 "+(e.pnl>=0?"+":"")+e.pnl.toFixed(2)+" U（"+e.pct.toFixed(1)+"%）":"")})});
+ out.forEach(m=>{if(m.c){const n=futNote(m.c);if(n)m.t+="\\n"+n}});
  return out})())`));
 for (const m of msgs) {
   if (m.k.startsWith("pos|")) { if (st.posMsg[m.k] === m.msg) continue; st.posMsg[m.k] = m.msg; await send(m.t); continue; }
