@@ -29,7 +29,7 @@ input{width:90px;font:inherit;padding:4px 6px;border:1px solid var(--bd);border-
 <div id="conn">連線中…</div>
 <div id="busy" style="display:none;background:color-mix(in srgb,#e0a800 18%,transparent);color:#e0a800;border-radius:10px;padding:8px 12px;margin-bottom:8px;font-size:14px"></div>
 <details class="card" id="briefbox" open><summary>📋 打開統整：你不在時發生了什麼＋現在最好的選擇</summary><div id="brief"><p class="mut">正在抓最新行情，抓完馬上用 AI 學好的規則統整給你（約 5～20 秒）…</p></div></details>
-<div class="card"><b>⭐ AI 推薦（進場程度＋歷史勝率最好的前 3 名）</b><div class="mut">只有標「<b style="color:var(--up)">現在可做多／做空</b>」的才是可以下單的，點進去會看到「✅ 可以進場」。其他都只是觀察。</div><div id="rec"></div></div>
+<div class="card"><b>⭐ AI 推薦（進場程度＋歷史勝率最好的前 3 名）</b><div class="mut">只有標「<b style="color:var(--up)">現在可做多／做空</b>」的才是可以下單的，點進去會看到「✅ 可以進場」。其他都只是觀察。<b style="color:var(--dn)">「⏳ 還不能買」代表價格到了附近，但要等這根K線收盤確認轉強，提前買常常會繼續跌到停損。</b></div><div id="rec"></div></div>
 <details class="card" id="posbox" open><summary id="possum">💼 我的持倉</summary>
 <div class="mut">買了之後填這裡，我會一直盯著，有狀況馬上響＋通知（記得先按下面的🔔開啟提醒）。</div>
 <div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-top:6px">
@@ -154,12 +154,13 @@ function pdesc(g){const tail=`${g.btc?"、只做跟 BTC 同方向":""}；停損 
 let CLOUD=null;
 async function loadModel(){try{const r=await fetch("data/model.json?"+Date.now(),{cache:"no-store"});if(!r.ok)return null;const m=await r.json();
  if(!m||m.tf!==tf||!m.g||Date.now()-m.time>3*36e5)return null;return m}catch(e){return null}}
-function applyModel(m){CLOUD=m;Object.assign(P,m.g,m.ext||{htf:false,exit:"fixed",crowd:false});P.g=m.g;P.ext=m.ext;ACTIVE=!!m.active;LIVEST=m.live||null;
+function applyModel(m){CLOUD=m;if(m.grid&&m.grid.list&&m.grid.tf===tf&&Date.now()-m.grid.time<3*36e5)GRIDR=m.grid;Object.assign(P,m.g,m.ext||{htf:false,exit:"fixed",crowd:false});P.g=m.g;P.ext=m.ext;ACTIVE=!!m.active;LIVEST=m.live||null;
  OPT={...m.opt,pass:!!m.active,paused:!!m.paused,fromCloud:true,time:m.time};JC.clear()}
 async function refreshModel(){if(tf!==(CLOUD&&CLOUD.tf))return;const m=await loadModel();if(m&&(!CLOUD||m.time>CLOUD.time)){applyModel(m);COINS.forEach(c=>{if(A[c]&&A[c].kk)A[c]=analyze(A[c].kk,c)});JC.clear();learn();paintAll()}}
 function exportModel(){const O=OPT||{};const slim=r=>r?{g:r.g,v:r.v,train:r.train,test:r.test}:null;
  return{time:Date.now(),tf,g:P.g,ext:P.ext||{htf:false,exit:"fixed",crowd:false},active:ACTIVE,paused:!!O.paused,live:LIVEST,liveSince:(liveGet().cur||{}).since||null,
-  opt:{best:slim(O.best),chosen:slim(O.chosen),vres:(O.vres||[]).map(slim),top:(O.top||[]).map(slim),tested:O.tested,coins:O.coins,cutT:O.cutT}}}
+  opt:{best:slim(O.best),chosen:slim(O.chosen),vres:(O.vres||[]).map(slim),top:(O.top||[]).map(slim),tested:O.tested,coins:O.coins,cutT:O.cutT},
+  grid:GRIDR&&GRIDR.list&&GRIDR.tf===tf?{...GRIDR,list:GRIDR.list.filter(g=>g.pass).slice(0,30)}:null}}
 function runOpt(){if(optBusy){setTimeout(runOpt,400);return}optimize()}
 function tstat(x){return x&&x.n>1&&x.sd>0?x.avg/x.sd*Math.sqrt(x.n):0}
 function stratOK(r){return !!r&&r.train.avg>0&&r.test.n>=30&&r.test.avg>0&&tstat(r.test)>=1.5} // 真錢門檻：沒看過的資料至少 30 筆、平均要賺、而且賺得夠穩（不是運氣）
@@ -325,7 +326,7 @@ function buildBrief(){const el=$("brief");if(!el)return;briefDone=true;const now
  h+=`<p><b>③ ${OPT&&OPT.fromCloud?'AI 目前學到的結果（雲端持續學習）':'AI 剛剛重新學習的結果'}</b></p><p style="margin-left:8px">${OPT&&OPT.best?(OPT.pass?`✅ 用「${pdesc(P)}」＋升級「${extDesc(P.ext)}」，沒看過的新資料上平均 ${f2((OPT.chosen||OPT.best).test.avg)}（${(OPT.chosen||OPT.best).test.n} 筆，勝率 ${(OPT.chosen||OPT.best).test.win.toFixed(0)}%）。`:`⛔ ${tf} 目前沒有規則通過驗證，這個週期先不做，可以換週期看看。`):"學習中…"}</p>`;
  // 4. 現在最好的
  const r=ACTIVE?COINS.map(rankOf).filter(x=>x.stage>=3&&x.qual>0).sort((a,b)=>b.stage-a.stage||b.qual-a.qual||a.dist-b.dist).slice(0,3):[];
- h+=`<p><b>④ 現在最好的選擇</b></p>`+(r.length?r.map((x,i)=>`<div style="margin-left:8px" onclick="sel('${x.c}')">${i+1}. <b>${x.c}</b> ${x.stage===4?`<b style="color:${x.d>0?"var(--up)":"var(--dn)"}">現在可${x.d>0?"做多":"做空"}</b>`:`快可以${x.d>0?"做多":"做空"}（等回踩）`}・歷史勝率 ${x.bt.win.toFixed(0)}%・平均 ${f2(x.bt.avg)}（${x.bt.n} 筆）<span class="mut"> 看K線 ›</span></div>`).join(""):"<p class='mut' style='margin-left:8px'>現在沒有好機會。沒有好機會時不進場，也是賺錢的一部分。</p>");
+ h+=`<p><b>④ 現在最好的選擇</b></p>`+(r.length?r.map((x,i)=>`<div style="margin-left:8px" onclick="sel('${x.c}')">${i+1}. <b>${x.c}</b> ${x.stage===4?`<b style="color:${x.d>0?"var(--up)":"var(--dn)"}">現在可${x.d>0?"做多":"做空"}</b>`:`<span style="color:var(--mut)">⏳ 還不能買（等K線收盤確認${x.d>0?"做多":"做空"}）</span>`}・歷史勝率 ${x.bt.win.toFixed(0)}%・平均 ${f2(x.bt.avg)}（${x.bt.n} 筆）<span class="mut"> 看K線 ›</span></div>`).join(""):"<p class='mut' style='margin-left:8px'>現在沒有好機會。沒有好機會時不進場，也是賺錢的一部分。</p>");
  el.innerHTML=h;$("briefbox").open=true;lss("lastSeen",now)}
 setInterval(()=>{if(briefDone&&document.visibilityState==="visible")lss("lastSeen",Date.now())},3e4);
 document.addEventListener("visibilitychange",()=>{if(document.visibilityState==="hidden"&&briefDone)lss("lastSeen",Date.now())});
@@ -347,13 +348,13 @@ function gridSim(k,i0,len,w,n){const p0=k[i0].o,lo=p0*(1-w),hi=p0*(1+w),step=(hi
 async function gridScan(){if(gridBusy||!COINS.length)return;gridBusy=true;const myL=loadId,ms=TFMS[tf],len=Math.round(7*864e5/ms);
  if(len<20||len*4>2000){GRIDR={na:true};paintGrid();gridBusy=false;return}
  const out=[];let ci=0;
- for(const c of COINS){ci++;const a=A[c];if(!a||!a.kk||a.kk.length<len*4)continue;const k=a.kk,starts=[];for(let i=210;i+len<=k.length;i+=Math.round(len/2))starts.push(i);
+ for(const c of COINS){ci++;const a=A[c];if(!a||!a.kk||a.kk.length<len*4||(dirOf(c)!==0&&out.length>=40))continue;const k=a.kk,starts=[];for(let i=210;i+len<=k.length;i+=Math.round(len/2))starts.push(i);
   if(starts.length<6)continue;const cut=Math.floor(starts.length*.7);let best=null;
   for(const w of GW)for(const n of GN){const rs=starts.map(i=>gridSim(k,i,len,w,n));if(rs.some(r=>!r))continue;
    const tr=rs.slice(0,cut),te=rs.slice(cut),avg=x=>x.reduce((s2,r)=>s2+r.ret,0)/x.length,pos=x=>x.filter(r=>r.ret>0).length/x.length,worst=x=>Math.min(...x.map(r=>r.ret));
    const sc=avg(tr)+.3*worst(tr);if(!best||sc>best.sc)best={w,n,sc,trAvg:avg(tr),trPos:pos(tr),trWorst:worst(tr),teAvg:avg(te),tePos:pos(te),teWorst:worst(te),teN:te.length,stops:rs.filter(r=>r.stopped).length,N:rs.length,trades:rs.reduce((s2,r)=>s2+r.trades,0)/rs.length}}
   if(best){const pass=best.trAvg>0&&best.teAvg>0&&best.tePos>=.6&&best.teWorst>-.12;out.push({c,...best,pass,side:dirOf(c)})}
-  if(ci%8===0){$("gsum").textContent=`🕸 網格建議：回測中… ${ci}/${COINS.length}`;await new Promise(r=>setTimeout(r,0));if(myL!==loadId){gridBusy=false;return}}}
+  if(ci%2===0){$("gsum").textContent=`🕸 網格建議：回測中… ${ci}/${COINS.length}`;await new Promise(r=>setTimeout(r,30));if(myL!==loadId){gridBusy=false;return}}}
  out.sort((x,y)=>(y.pass-x.pass)||((x.side===0)-(y.side===0))*-1||y.teAvg-x.teAvg);GRIDR={list:out,len,time:Date.now(),tf};gridBusy=false;paintGrid()}
 function gridPlan(g){const k=D[g.c],px=k[k.length-1].c,lo=px*(1-g.w),hi=px*(1+g.w);return{px,lo,hi,stop:lo*.95,step:(hi-lo)/g.n/px*100}}
 function paintGrid(){const el=$("grid");if(!el)return;const R=GRIDR;
@@ -458,11 +459,11 @@ function paintRec(){const el=$("rec");if(!el)return;const sc=$("scan");if(sc&&+s
  const all=COINS.map(rankOf),dirN=all.filter(x=>x.d!==0).length,nearN=all.filter(x=>x.stage>=3).length,goodN=all.filter(x=>x.qual>0).length,nowN=all.filter(x=>x.stage===4).length;
  const funnel=`<div class="mut" style="margin-top:6px">${FUT?"只掃有幣安 USDT 永續合約的幣（合約清單來源："+FUTSRC+"）。":"⚠️ 這次抓不到合約清單，下面可能混有沒有合約的幣，請下單前確認。"}掃描 ${COINS.length} 個幣 → 有明確方向 ${dirN} 個 → 接近或可以進場 ${nearN} 個（現在就能進 ${nowN} 個）→ 這個幣過去用目前策略是賺的 ${goodN} 個。兩個條件都要過才推薦。</div>`;
  if(!ACTIVE){el.innerHTML=`<span class='mut'>AI 在 ${tf} 找不到能通過驗證的策略，所以不推薦。可以切換其他週期。</span>`+funnel;return}
- const row=(x,i,watch)=>{const nm=x.d>0?"做多":"做空";return`<div class="row" style="padding:6px 0;border-bottom:1px solid var(--bd)" onclick="sel('${x.c}')"><div><b>${i+1}. ${x.c}</b> <span class="tag ${watch?"":x.d>0?"long":"short"}">${watch?"觀察中・"+nm+"方向":x.stage===4?"現在可"+nm:"快可以"+nm}</span><div class="mut">歷史勝率 ${x.bt.win.toFixed(0)}%・平均 ${f2(x.bt.avg)}（${x.bt.n} 筆）・${x.q.txt}<br><span style="color:var(--tx)">${planTxt(x.c,true)}</span></div></div><span class="mut">看K線 ›</span></div>`};
+ const row=(x,i,watch)=>{const nm=x.d>0?"做多":"做空";return`<div class="row" style="padding:6px 0;border-bottom:1px solid var(--bd)" onclick="sel('${x.c}')"><div><b>${i+1}. ${x.c}</b> <span class="tag ${watch?"":x.d>0?"long":"short"}">${watch?"觀察中・"+nm+"方向":x.stage===4?"現在可"+nm:"⏳ 還不能買・等收盤確認"+nm}</span><div class="mut">歷史勝率 ${x.bt.win.toFixed(0)}%・平均 ${f2(x.bt.avg)}（${x.bt.n} 筆）・${x.q.txt}<br><span style="color:var(--tx)">${planTxt(x.c,true)}</span></div></div><span class="mut">看K線 ›</span></div>`};
  const r=all.filter(x=>x.stage>=3&&x.qual>0).sort((a,b)=>b.stage-a.stage||b.qual-a.qual||a.dist-b.dist).slice(0,3);
  if(r.length){el.innerHTML=r.map((x,i)=>row(x,i,false)).join("")+funnel;return}
  const w=all.filter(x=>x.d!==0&&x.qual>0&&x.stage>=1).sort((a,b)=>a.dist-b.dist||b.qual-a.qual).slice(0,3);
- el.innerHTML=`<div class="mut">現在沒有「接近進場又成績好」的幣，所以不推薦進場。下面是<b>最接近條件、歷史成績好的觀察名單</b>，還不能買，等它變成「快可以」或「現在可」：</div>`+(w.length?w.map((x,i)=>row(x,i,true)).join(""):"<div class='mut'>（目前沒有）</div>")+funnel}
+ el.innerHTML=`<div class="mut">現在沒有「接近進場又成績好」的幣，所以不推薦進場。下面是<b>最接近條件、歷史成績好的觀察名單</b>，還不能買，等它變成「現在可」：</div>`+(w.length?w.map((x,i)=>row(x,i,true)).join(""):"<div class='mut'>（目前沒有）</div>")+funnel}
 /* ===== 我的持倉：隨時監控，有狀況馬上通知 ===== */
 let POS=lsg("pos",[]),posSeen={};
 function savePos(){lss("pos",POS)}
@@ -605,7 +606,7 @@ function connect(){
   const b={t:q.t,o:+q.o,h:+q.h,l:+q.l,c:+q.c,v:+q.v,ct:q.T};
   if(k[k.length-1].t===b.t)k[k.length-1]=b;else if(b.t>k[k.length-1].t){k.push(b);if(k.length>2100)k.splice(0,k.length-2000)}
   if(q.x){A[c]=analyze(k.filter(x=>x.t<=b.t),c);JC.clear();clearTimeout(window._lt);window._lt=setTimeout(()=>{learn();paintLearn()},3000)}
-  if(!raf)raf=requestAnimationFrame(()=>{raf=0;paint()});};
+  if(!raf&&document.visibilityState==="visible")raf=setTimeout(()=>{raf=0;paint()},600);};
 }
 setInterval(()=>{if(document.visibilityState==="visible"&&!loading&&COINS.length&&Date.now()-lastMsg>20000){setConn("太久沒收到價格，重新連線…","bad");connect();lastMsg=Date.now()-15000}},5000); // 看門狗
 function setConn(t,c){const e=$("conn");e.textContent=t;e.className=c}

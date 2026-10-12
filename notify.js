@@ -211,7 +211,7 @@ async function newsRiskScan() {
 
 // ---- 雲端大腦：把學習結果存成 data/model.json，網頁打開時直接用 ----
 function modelWrite() {
-  const m = JSON.parse(G("JSON.stringify(exportModel())")), sig = JSON.stringify([m.g, m.ext, m.active, m.paused]);
+  const m = JSON.parse(G("JSON.stringify(exportModel())")), sig = JSON.stringify([m.g, m.ext, m.active, m.paused, m.grid ? m.grid.time : 0]);
   if (sig !== st.modelSig || !st.modelW || Date.now() - st.modelW > 55 * 6e4) { writeData("model.json", m); st.modelSig = sig; st.modelW = Date.now(); console.log(`已更新 data/model.json（規則${m.active ? "通過" : "未通過／暫停"}）`); }
 }
 
