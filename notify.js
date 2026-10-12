@@ -55,7 +55,7 @@ const HELP = `指令：
 /list 看持倉
 /close 幣　平倉後移除
 /equity 1000　設定本金（算下單金額用）
-/status 現在推薦
+/status 現在推薦（只有 ✅ 才是可以下單）
 /report 累積經驗報告
 /news 新聞與市場情緒
 提醒：雲端大約每 1 分鐘更新一次價格，K線收盤後 1～2 分鐘內就會通知。停損一定要在交易所掛好。
@@ -239,7 +239,7 @@ async function alerts() {
   const msgs = JSON.parse(G(`JSON.stringify((()=>{const out=[];
    COINS.forEach(c=>{const a=A[c];if(!a)return;const q=judge(c);
     if(q.sig&&!q.weak){const p=planOf(c),v=verdict(c);if(!p||!v||!v.ok)return;out.push({c,k:"sig|"+tf+"|"+c+"|"+a.lastT,t:"✅ 可以進場："+(q.sig.s.s>0?"做多":"做空")+" "+c+"（"+tf+"，"+FAMZH[ruleOf(c).fam]+"，"+v.items.length+" 項檢查全部通過）\\n傳訊時現價 "+fp(p.live)+"\\n進場區間 "+fp(p.lo)+"～"+fp(p.hi)+"\\n⚠️ "+(q.sig.s.s>0?"現價高於 "+fp(p.hi):"現價低於 "+fp(p.lo))+" 就不要追，這筆放掉\\n建議用限價單掛在區間內，同時設好停損停利\\n停損 "+fp(p.stop)+"\\n"+(P.exit==="trail"?"第一目標 "+fp(p.tp)+"（到了不賣：停損移到成本，之後跟著價格移動）":"停利 "+fp(p.tp))+"\\n有效到這根K線收盤（還有 "+closeIn(c)+"）\\n歷史勝率 "+a.bt.win.toFixed(0)+"%・平均 "+f2(a.bt.avg)+"（"+a.bt.n+" 筆）"})}
-    else if(ACTIVE&&a.bt&&a.bt.n>=5&&a.bt.avg>0){const p=planOf(c);if(p&&!p.now&&p.inZone)out.push({c,k:"zone|"+tf+"|"+c+"|"+a.lastT,t:"⏰ "+c+" 進入"+(p.s>0?"做多":"做空")+"預估區 "+fp(p.lo)+"～"+fp(p.hi)+"（"+tf+"）\\nK線 "+closeIn(c)+" 後收盤，收盤符合條件才會變成可以進場。"})}});
+    });  // 「進入預估區」的預告已取消：只有收盤確認後的 ✅ 才通知，避免提前進場
    POS.forEach(p=>{const e=evalPos(p);if(e.lv!=="ok"&&e.px)out.push({k:"pos|"+p.id,msg:e.msg,t:"💼 "+p.c+" "+(p.s>0?"做多":"做空")+"："+e.msg+(e.pnl!==undefined?"\\n目前 "+(e.pnl>=0?"+":"")+e.pnl.toFixed(2)+" U（"+e.pct.toFixed(1)+"%）":"")})});
    out.forEach(m=>{if(m.c){const n=futNote(m.c);if(n)m.t+="\\n"+n}});
    return out})())`));

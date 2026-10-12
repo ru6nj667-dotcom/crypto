@@ -419,10 +419,10 @@ function verdict(c){const a=A[c],q=judge(c);if(!a||!a.e50)return null;const bt=a
   ["不是 AI 學到的「常做錯」情況",!q.sig||!(learnBlock(q.sig.s)||journalBlock(c,q.sig.s)),q.sig?(learnBlock(q.sig.s)||journalBlock(c,q.sig.s)||"無"):"出現訊號時才檢查"],
   ["K線收盤確認，出現進場訊號",!!q.sig,q.sig?"已確認":q.txt],
   ["價格還在進場區間、沒有追太遠",!!q.sig,q.sig?`現價下風險報酬 ${q.sig.rr.toFixed(1)}`:/不追|不足/.test(q.txt)?q.txt:"還沒有訊號"]];
- if(P.htf){const d=btcDayDir(Date.now()),need=q.sig?q.sig.s.s:dirOf(c);items.splice(1,0,["BTC 日線大方向一致（200 日均線）",d===0||d===need,d>0?"BTC 在 200 日均線之上（只做多）":d<0?"BTC 在 200 日均線之下（只做空）":"抓不到日線"])}
+ if(P.htf){const d=btcDayDir(Date.now()),need=q.sig?q.sig.s.s:dirOf(c);if(need!==0)items.splice(1,0,["BTC 日線大方向一致（200 日均線）",d===0||d===need,d>0?"BTC 在 200 日均線之上（只做多）":d<0?"BTC 在 200 日均線之下（只做空）":"抓不到日線"])}
  if(P.crowd){const r=fundAt(c,Date.now()),need=q.sig?q.sig.s.s:dirOf(c),bad=r!=null&&(need>0?r>.0003:need<0?r<-.0003:false);items.splice(1,0,["合約沒有過度擁擠（資金費率）",!bad,r==null?"沒有合約資料":"資金費率 "+(r*100).toFixed(3)+"%"])}
  const fail=items.filter(x=>!x[1]),hard=fail.filter(x=>!/收盤確認|進場區間/.test(x[0]));
- if(!q.sig&&dirOf(c)===0)hard.push(["方向不明（均線糾纏，最容易假突破）",false,""]);
+ if(!q.sig&&dirOf(c)===0)hard.unshift(["這個幣方向不明（均線糾纏，最容易假突破）",false,""]);
  const ok=!fail.length&&!hard.length,wait=!ok&&!hard.length;
  return{ok,wait,items,fail,hard,q}}
 function _unused(){const ok=0,wait=0,items=0,fail=0,q=0;
@@ -681,8 +681,7 @@ function enableAlert(){try{actx=actx||new (window.AudioContext||window.webkitAud
  $("alertHint").textContent=" 頁面要保持開著、螢幕亮著才會響";beep()}
 function beep(){if(!actx)return;try{const o=actx.createOscillator(),g=actx.createGain();o.connect(g);g.connect(actx.destination);o.frequency.value=880;g.gain.setValueAtTime(.25,actx.currentTime);g.gain.exponentialRampToValueAtTime(.001,actx.currentTime+.6);o.start();o.stop(actx.currentTime+.6)}catch(e){}}
 function checkZones(){if(!ACTIVE||firstPass)return;COINS.forEach(c=>{const a=A[c];if(!a||!a.bt||!(a.bt.n>=3&&a.bt.avg>0))return;const p=planOf(c);if(!p||p.now||!p.inZone)return;
- const key="z"+c+tf+a.lastT;if(seen.has(key))return;seen.add(key);const msg=`⏰ ${c} 進入${p.s>0?"做多":"做空"}區 ${fp(p.lo)}～${fp(p.hi)}，K線 ${closeIn(c)} 後收盤，收盤符合條件才進`;
- document.title=msg;if(alertOn){beep();try{if(window.Notification&&Notification.permission==="granted")new Notification("接近進場",{body:msg})}catch(e){}}})}
+ const key="z"+c+tf+a.lastT;if(seen.has(key))return;seen.add(key);document.title=`👀 ${c} 接近條件（還不能買）`})} // 只是預告，不響鈴、不通知，避免提前進場
 function checkAlerts(){checkZones();const now=COINS.filter(c=>{const q=judge(c);return q.sig&&!q.weak});
  now.forEach(c=>{const q=judge(c),key=c+tf+A[c].lastT;if(seen.has(key))return;seen.add(key);if(firstPass)return;logAdd(c,q);
   const msg=`${c} 可以${q.sig.s.s>0?"做多":"做空"}（${tf}）停損 ${fp(q.sig.s.stop)} 停利 ${fp(q.sig.tp)}`;
