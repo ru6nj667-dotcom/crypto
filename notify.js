@@ -186,7 +186,7 @@ if (later.includes("report")) await send(G(`(()=>{const S=JSTAT;if(!S||!S.n)retu
 G("lastMsg=Date.now();JC.clear()"); // 雲端沒有即時連線：計算前把行情時間標成剛更新，避免被當成斷線而漏掉訊號
 const msgs = JSON.parse(G(`JSON.stringify((()=>{const out=[];
  COINS.forEach(c=>{const a=A[c];if(!a)return;const q=judge(c);
-  if(q.sig&&!q.weak){const p=planOf(c),v=verdict(c);if(!p||!v||!v.ok)return;out.push({k:"sig|"+tf+"|"+c+"|"+a.lastT,t:"✅ 可以進場："+(q.sig.s.s>0?"做多":"做空")+" "+c+"（"+tf+"，7 項檢查全部通過）\\n進場區間 "+fp(p.lo)+"～"+fp(p.hi)+"\\n停損 "+fp(p.stop)+"\\n停利 "+fp(p.tp)+"\\n有效到這根K線收盤（還有 "+closeIn(c)+"）\\n歷史勝率 "+a.bt.win.toFixed(0)+"%・平均 "+f2(a.bt.avg)+"（"+a.bt.n+" 筆）"})}
+  if(q.sig&&!q.weak){const p=planOf(c),v=verdict(c);if(!p||!v||!v.ok)return;out.push({k:"sig|"+tf+"|"+c+"|"+a.lastT,t:"✅ 可以進場："+(q.sig.s.s>0?"做多":"做空")+" "+c+"（"+tf+"，7 項檢查全部通過）\\n傳訊時現價 "+fp(p.live)+"\\n進場區間 "+fp(p.lo)+"～"+fp(p.hi)+"\\n⚠️ "+(q.sig.s.s>0?"現價高於 "+fp(p.hi):"現價低於 "+fp(p.lo))+" 就不要追，這筆放掉\\n建議用限價單掛在區間內，同時設好停損停利\\n停損 "+fp(p.stop)+"\\n停利 "+fp(p.tp)+"\\n有效到這根K線收盤（還有 "+closeIn(c)+"）\\n歷史勝率 "+a.bt.win.toFixed(0)+"%・平均 "+f2(a.bt.avg)+"（"+a.bt.n+" 筆）"})}
   else if(ACTIVE&&a.bt&&a.bt.n>=5&&a.bt.avg>0){const p=planOf(c);if(p&&!p.now&&p.inZone)out.push({k:"zone|"+tf+"|"+c+"|"+a.lastT,t:"⏰ "+c+" 進入"+(p.s>0?"做多":"做空")+"預估區 "+fp(p.lo)+"～"+fp(p.hi)+"（"+tf+"）\\nK線 "+closeIn(c)+" 後收盤，收盤符合條件才會變成可以進場。"})}});
  POS.forEach(p=>{const e=evalPos(p);if(e.lv!=="ok"&&e.px)out.push({k:"pos|"+p.id,msg:e.msg,t:"💼 "+p.c+" "+(p.s>0?"做多":"做空")+"："+e.msg+(e.pnl!==undefined?"\\n目前 "+(e.pnl>=0?"+":"")+e.pnl.toFixed(2)+" U（"+e.pct.toFixed(1)+"%）":"")})});
  return out})())`));
