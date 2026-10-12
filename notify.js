@@ -31,7 +31,7 @@ const send = async text => { if (!st.chat) { console.log("⚠️ 還不知道要
 
 // ---- 假的瀏覽器環境，讓網頁程式可以在伺服器上跑 ----
 const store = st.ls;
-store.scan ??= "80";
+store.scan = process.env.SCAN || "250"; // 跟網頁一樣掃成交量前 250 名（扣掉沒合約的）
 globalThis.localStorage = { getItem: k => (k in store ? store[k] : null), setItem: (k, v) => { store[k] = String(v); }, removeItem: k => { delete store[k]; } };
 const ctxProxy = () => new Proxy(function () { }, { get: () => ctxProxy(), set: () => true, apply: () => ctxProxy() });
 const els = {};
