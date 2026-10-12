@@ -53,6 +53,7 @@ input{width:90px;font:inherit;padding:4px 6px;border:1px solid var(--bd);border-
 <div class="card"><span class="mut">本金</span> <input id="eq" type="number" value="1000"> <span class="mut">USDT · 單筆風險 1% · 槓桿上限 2 倍</span></div>
 <div class="card"><div class="tabs" id="sides"></div><div class="mut" id="sidehint"></div><table><thead><tr><th>幣種（點一下看K線）</th><th>現價</th><th>狀態</th></tr></thead><tbody id="list"></tbody></table></div>
 <details class="card"><summary id="optsum">🧠 AI 學習中…</summary><div id="opt"></div></details>
+<details class="card"><summary id="gsum">🕸 網格建議（盤整幣）</summary><div id="grid"></div></details>
 <details class="card"><summary id="jsum">📚 累積經驗</summary><div id="journal"></div></details>
 <details class="card"><summary id="learnsum">🔍 錯誤來源分析</summary><div id="learn"></div></details>
 <details class="card"><summary id="logsum">📒 24 小時內的訊號</summary><div id="log"></div></details>
@@ -154,7 +155,7 @@ async function optimize(){if(optBusy||!A.BTC||!A.BTC.B)return;optBusy=true;const
  LIVEST=LV.cur?liveStatsOf(LV.cur):null;let failed=false;
  if(LV.cur&&LIVEST&&LIVEST.n>=20&&LIVEST.avg<0){LV.ban[LV.cur.key]=nowT+7*864e5;LV.hist.push({...LIVEST,key:LV.cur.key,g:LV.cur.g,since:LV.cur.since,until:nowT,status:"實戰虧損，停用 7 天"});LV.cur=null;ACTIVE=false;OPT.pass=false;failed=true} // 上線後真的在虧 → 判定失效
  LV.hist=LV.hist.filter(h=>h.until>nowT-30*864e5).slice(-30);liveSet(LV);
- learn();paintAll();optBusy=false;if(failed){setTimeout(runOpt,500);return}if(!briefDone)buildBrief()}
+ learn();paintAll();optBusy=false;if(!GRIDR||GRIDR.na||Date.now()-GRIDR.time>36e5||GRIDR.tf!==tf)setTimeout(gridScan,200);if(failed){setTimeout(runOpt,500);return}if(!briefDone)buildBrief()}
 /* ===== 實戰成績：規則上線之後，真的發生的訊號（用K線重建，所以手機在背景時發生的也算得到） ===== */
 let LIVEST=null;
 function liveGet(){const v=lsg("live_"+tf,null);return v&&v.ban?v:{cur:null,hist:[],ban:{}}}
@@ -283,7 +284,49 @@ function buildBrief(){const el=$("brief");if(!el)return;briefDone=true;const now
 setInterval(()=>{if(briefDone&&document.visibilityState==="visible")lss("lastSeen",Date.now())},3e4);
 document.addEventListener("visibilitychange",()=>{if(document.visibilityState==="hidden"&&briefDone)lss("lastSeen",Date.now())});
 
-function paintAll(){paintJournal();paintOpt();paintLearn();paintRules();paint();paintLog();paintRec();paintPos()}
+/* ===== 網格建議：給盤整的幣用（幣安現貨網格，自己去設定） =====
+   做法：用每個幣的歷史K線，模擬「每 7 天開一次網格」，試不同區間寬度與格數，扣手續費 0.1%，
+   跌破下緣再跌 5% 就全撤（停損）。前 70% 的時間挑參數，後 30% 沒看過的時間驗證，通過才推薦。 */
+let GRIDR=null,gridBusy=false;
+const GW=[.06,.1,.15,.2],GN=[8,15,25];
+function gridSim(k,i0,len,w,n){const p0=k[i0].o,lo=p0*(1-w),hi=p0*(1+w),step=(hi-lo)/n,stopPx=lo*.95,F=.001;
+ if(step/p0<.005)return null; // 每格利潤太小，手續費吃光
+ const L=[];for(let j=0;j<=n;j++)L.push(lo+j*step);const per=1/n;let cash=0,hold=[],qty=[];
+ for(let j=0;j<n;j++){if(L[j]>=p0){hold[j]=true;qty[j]=per/p0*(1-F)}else{hold[j]=false;qty[j]=0;cash+=per}}
+ let stopped=false,last=p0,trades=0;
+ const move=px=>{for(let j=0;j<n;j++){if(hold[j]&&px>=L[j+1]){cash+=qty[j]*L[j+1]*(1-F);hold[j]=false;qty[j]=0;trades++}else if(!hold[j]&&px<=L[j]&&px>stopPx){qty[j]=per/L[j]*(1-F);cash-=per;hold[j]=true;trades++}}};
+ for(let t=i0;t<Math.min(k.length,i0+len);t++){const b=k[t];const path=b.c>=b.o?[b.o,b.l,b.h,b.c]:[b.o,b.h,b.l,b.c];
+  for(const px of path){if(px<=stopPx){for(let j=0;j<n;j++)if(hold[j]){cash+=qty[j]*stopPx*(1-F);hold[j]=false;qty[j]=0}stopped=true;break}move(px)}last=b.c;if(stopped)break}
+ let v=cash;for(let j=0;j<n;j++)if(hold[j])v+=qty[j]*last;return{ret:v-1,stopped,trades}}
+async function gridScan(){if(gridBusy||!COINS.length)return;gridBusy=true;const myL=loadId,ms=TFMS[tf],len=Math.round(7*864e5/ms);
+ if(len<20||len*4>2000){GRIDR={na:true};paintGrid();gridBusy=false;return}
+ const out=[];let ci=0;
+ for(const c of COINS){ci++;const a=A[c];if(!a||!a.kk||a.kk.length<len*4)continue;const k=a.kk,starts=[];for(let i=210;i+len<=k.length;i+=Math.round(len/2))starts.push(i);
+  if(starts.length<6)continue;const cut=Math.floor(starts.length*.7);let best=null;
+  for(const w of GW)for(const n of GN){const rs=starts.map(i=>gridSim(k,i,len,w,n));if(rs.some(r=>!r))continue;
+   const tr=rs.slice(0,cut),te=rs.slice(cut),avg=x=>x.reduce((s2,r)=>s2+r.ret,0)/x.length,pos=x=>x.filter(r=>r.ret>0).length/x.length,worst=x=>Math.min(...x.map(r=>r.ret));
+   const sc=avg(tr)+.3*worst(tr);if(!best||sc>best.sc)best={w,n,sc,trAvg:avg(tr),trPos:pos(tr),trWorst:worst(tr),teAvg:avg(te),tePos:pos(te),teWorst:worst(te),teN:te.length,stops:rs.filter(r=>r.stopped).length,N:rs.length,trades:rs.reduce((s2,r)=>s2+r.trades,0)/rs.length}}
+  if(best){const pass=best.trAvg>0&&best.teAvg>0&&best.tePos>=.6&&best.teWorst>-.12;out.push({c,...best,pass,side:dirOf(c)})}
+  if(ci%8===0){$("gsum").textContent=`🕸 網格建議：回測中… ${ci}/${COINS.length}`;await new Promise(r=>setTimeout(r,0));if(myL!==loadId){gridBusy=false;return}}}
+ out.sort((x,y)=>(y.pass-x.pass)||((x.side===0)-(y.side===0))*-1||y.teAvg-x.teAvg);GRIDR={list:out,len,time:Date.now(),tf};gridBusy=false;paintGrid()}
+function gridPlan(g){const k=D[g.c],px=k[k.length-1].c,lo=px*(1-g.w),hi=px*(1+g.w);return{px,lo,hi,stop:lo*.95,step:(hi-lo)/g.n/px*100}}
+function paintGrid(){const el=$("grid");if(!el)return;const R=GRIDR;
+ if(!R){$("gsum").textContent="🕸 網格建議（盤整幣）：計算中…";el.innerHTML="";return}
+ if(R.na){$("gsum").textContent="🕸 網格建議：請切到 1h 或 4h";el.innerHTML="<p class='mut'>網格以 7 天為一輪做回測，需要 1h 或 4h 的K線。</p>";return}
+ const ok=R.list.filter(g=>g.pass&&g.side===0).slice(0,3),ok2=R.list.filter(g=>g.pass&&g.side!==0).slice(0,2),eq=+$("eq").value||0;
+ $("gsum").textContent=`🕸 網格建議（盤整幣）：${ok.length?ok.map(g=>g.c).join("、"):"目前沒有通過驗證的"}`;
+ const pct=x=>(x>=0?"+":"")+(x*100).toFixed(1)+"%";
+ const card=(g,i)=>{const p=gridPlan(g);return`<div style="border:1px solid var(--bd);border-radius:10px;padding:8px;margin:8px 0" onclick="sel('${g.c}')">
+  <div class="row"><b>${i+1}. ${g.c}/USDT 現貨網格</b><span class="mut">看K線 ›</span></div>
+  <div>價格區間 <b>${fp(p.lo)} ～ ${fp(p.hi)}</b>（現價 ±${(g.w*100).toFixed(0)}%）・<b>${g.n} 格</b>・等差・每格約 ${p.step.toFixed(2)}%</div>
+  <div>建議投入：本金的 20%（約 ${(eq*.2).toFixed(0)} U）・<span style="color:var(--dn)">跌破 ${fp(p.stop)} 全撤</span>・漲破上緣會自動賣光，就停止網格</div>
+  <div class="mut">回測（每輪 7 天，共 ${g.N} 輪）：沒看過的期間平均每輪 ${pct(g.teAvg)}、${(g.tePos*100).toFixed(0)}% 的輪次賺錢、最差 ${pct(g.teWorst)}；平均每輪成交 ${g.trades.toFixed(0)} 次；觸發全撤 ${g.stops} 次</div></div>`};
+ let h=`<p class="mut">網格適合<b>來回震盪</b>的幣：區間內跌了買、漲了賣，賺來回的價差。以下每個幣都用自己的歷史K線、每 7 天一輪模擬，扣手續費，前 70% 挑參數、後 30% 驗證；<b>沒看過的期間平均要賺、六成以上輪次賺、最差不能虧超過 12%</b> 才列出。</p>`;
+ h+=ok.length?ok.map(card).join(""):"<p>目前沒有「盤整中、而且回測通過」的幣。沒有好機會就不要開網格。</p>";
+ if(ok2.length)h+=`<p class="mut" style="margin-top:8px">回測通過、但現在有明顯方向的（開網格要小心單邊行情）：</p>`+ok2.map((g,i)=>card(g,i+ok.length)).join("");
+ h+=`<p class="mut">在幣安：交易 → 交易機器人 → 現貨網格 → 手動設定，填上下限、格數、投入金額；建議另外把「止損價」設成上面的全撤價。網格碰到單邊下跌會越買越多，所以一定要設止損。</p>`;
+ el.innerHTML=h}
+function paintAll(){paintGrid();paintJournal();paintOpt();paintLearn();paintRules();paint();paintLog();paintRec();paintPos()}
 /* ===== 預估交易計畫：還沒到進場點時，先算好「大概在哪進、停損停利多少、下多少」 ===== */
 function planOf(c){const a=A[c],j=judge(c);if(!a||!a.e50)return null;const k=D[c],live=k&&k.length?k[k.length-1].c:a.c;
  if(j.sig){const s=j.sig.s,risk=Math.abs(s.entry-s.stop),lo=s.s>0?s.entry-.3*risk:s.entry-.5*risk,hi=s.s>0?s.entry+.5*risk:s.entry+.3*risk;
@@ -396,7 +439,7 @@ async function getK(c){const u=`${REST}/api/v3/klines?symbol=${c}USDT&interval=$
 async function pool(arr,n,fn){let i=0;await Promise.all(Array.from({length:n},async()=>{while(i<arr.length){const x=arr[i++];await fn(x)}}))}
 let loadId=0,loading=false,SCAN=lsg("scan",80);
 async function load(){const my=++loadId;loading=true;
- setConn(`連線中…（抓 ${SCAN} 個幣各 2000 根 K 線並讓 AI 學習，約 10–60 秒）`,"");D={};A={};firstPass=true;OPT=null;loadSaved();if(!briefDone)prevSeen=lsg("lastSeen",null);briefDone=false;$("brief").innerHTML="<p class='mut'>正在抓最新行情、讓 AI 重新學習，學完馬上統整給你…</p>";
+ GRIDR=null; setConn(`連線中…（抓 ${SCAN} 個幣各 2000 根 K 線並讓 AI 學習，約 10–60 秒）`,"");D={};A={};firstPass=true;OPT=null;loadSaved();if(!briefDone)prevSeen=lsg("lastSeen",null);briefDone=false;$("brief").innerHTML="<p class='mut'>正在抓最新行情、讓 AI 重新學習，學完馬上統整給你…</p>";
  let tk=null,err="";
  for(const u of RESTS){try{tk=await getJ(u+"/api/v3/ticker/24hr",2);REST=u;break}catch(e){err=e.message}}
  if(my!==loadId)return;
