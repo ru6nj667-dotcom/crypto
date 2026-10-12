@@ -52,6 +52,7 @@ const HELP = `指令：
 /equity 1000　設定本金（算下單金額用）
 /status 現在推薦
 /report 累積經驗報告
+/news 新聞與市場情緒
 提醒：大約每 5～15 分鐘檢查一次，停損一定要在交易所掛好。`;
 const cmds = [];
 if (!TOKEN) console.log("❌ 沒有讀到 TG_TOKEN：請到 Settings → Secrets → Actions 新增，名稱要完全是 TG_TOKEN");
@@ -67,6 +68,34 @@ for (const u of up.result || []) {
   cmds.push(m.text.trim());
 }
 for (const t of cmds) if (/^\/equity/i.test(t)) { const v = +t.split(/\s+/)[1]; if (v > 0) { st.equity = v; els.eq && (els.eq.value = String(v)); } }
+
+// ---- 新聞與市場情緒（每小時抓一次）：只用來避開風險 ----
+const RISK_KW = [["hack", "駭客"], ["exploit", "漏洞攻擊"], ["drain", "資金被盜"], ["stolen", "被盜"], ["delist", "下架"], ["lawsuit", "訴訟"], ["sues", "被告"], ["sued", "被告"], ["charges", "被起訴"], ["fraud", "詐欺"], ["depeg", "脫鉤"], ["insolven", "無力償付"], ["bankrupt", "破產"], ["halt", "暫停"], ["suspend", "暫停"], ["rug pull", "捲款"], ["scam", "詐騙"], ["investigation", "調查"], ["arrest", "逮捕"], ["outage", "當機"], ["vulnerab", "漏洞"], ["attack", "攻擊"], ["unlock", "大量解鎖"], ["liquidat", "大量爆倉"]];
+const NAMES = { BITCOIN: "BTC", ETHEREUM: "ETH", ETHER: "ETH", SOLANA: "SOL", RIPPLE: "XRP", DOGECOIN: "DOGE", CARDANO: "ADA", POLKADOT: "DOT", AVALANCHE: "AVAX", CHAINLINK: "LINK", TRON: "TRX", LITECOIN: "LTC", POLYGON: "POL", TONCOIN: "TON", SHIBA: "SHIB", PEPE: "PEPE", ARBITRUM: "ARB", OPTIMISM: "OP", APTOS: "APT", "SUI ": "SUI", NEAR: "NEAR", UNISWAP: "UNI", AAVE: "AAVE", BNB: "BNB", BINANCE: "BNB", HYPERLIQUID: "HYPE", ETHENA: "ENA", WORLDCOIN: "WLD", CELESTIA: "TIA" };
+async function fetchText(url) { try { const r = await fetch(url, { headers: { "user-agent": "Mozilla/5.0 crypto-notify" } }); return r.ok ? await r.text() : ""; } catch { return ""; } }
+async function getNews() {
+  const out = { time: Date.now(), fng: null, items: [], delist: [], risk: {} };
+  try { const j = JSON.parse(await fetchText("https://api.alternative.me/fng/?limit=1")); const v = +j.data[0].value; out.fng = { value: v, zh: v <= 24 ? "極度恐懼" : v <= 44 ? "恐懼" : v <= 55 ? "中性" : v <= 75 ? "貪婪" : "極度貪婪" }; } catch { }
+  for (const [src, url] of [["Cointelegraph", "https://cointelegraph.com/rss"], ["CoinDesk", "https://www.coindesk.com/arc/outboundfeeds/rss/"], ["Decrypt", "https://decrypt.co/feed"]]) {
+    const x = await fetchText(url);
+    for (const m of x.matchAll(/<item[\s\S]*?<\/item>/g)) {
+      const it = m[0], g = re => { const r = it.match(re); return r ? r[1].replace(/<!\[CDATA\[|\]\]>/g, "").trim() : ""; };
+      const title = g(/<title>([\s\S]*?)<\/title>/), link = g(/<link>([\s\S]*?)<\/link>/), t = Date.parse(g(/<pubDate>([\s\S]*?)<\/pubDate>/)) || Date.now();
+      if (title) out.items.push({ src, title, link, time: t });
+    }
+  }
+  try {
+    const j = JSON.parse(await fetchText("https://www.binance.com/bapi/composite/v1/public/cms/article/list/query?type=1&pageNo=1&pageSize=15&catalogId=161"));
+    for (const a of j.data.catalogs[0].articles) { if (Date.now() - a.releaseDate > 30 * 864e5) continue; for (const m of a.title.matchAll(/\b([A-Z][A-Z0-9]{1,9})\b/g)) if (!["BINANCE", "WILL", "USDT", "THE", "AND", "ON", "SPOT", "MARGIN", "FUTURES", "DELIST", "USD", "USDC", "FDUSD", "TRY", "EUR"].includes(m[1])) out.delist.push(m[1]); }
+    out.delist = [...new Set(out.delist)];
+  } catch { }
+  { const seen = new Set(); out.items = out.items.filter(n => { const k = n.title.toLowerCase().slice(0, 50); if (seen.has(k)) return false; seen.add(k); return true; }); }
+  out.items.sort((a, b) => b.time - a.time); out.items = out.items.slice(0, 60);
+  return out;
+}
+st.newsT ??= 0;
+if (Date.now() - st.newsT > 50 * 6e4 || !st.news) { const n = await getNews(); if (n.items.length || n.fng) { st.news = n; st.newsT = Date.now(); console.log(`新聞：${n.items.length} 則標題、恐懼貪婪 ${n.fng ? n.fng.value : "?"}、下架公告 ${n.delist.length} 個幣`); } else console.log("新聞：這次抓不到（下次再試）"); }
+globalThis.__NEWS = st.news || null;
 
 // ---- 執行網頁程式（index.html 裡的同一份邏輯） ----
 const html = fs.readFileSync("index.html", "utf8");
@@ -105,11 +134,33 @@ for (const t of cmds) {
   } else if (c0 === "/status") {
     posCmd.push(G(`(()=>{const r=COINS.map(rankOf).filter(x=>x.stage>=3&&x.qual>0).sort((a,b)=>b.stage-a.stage||b.qual-a.qual||a.dist-b.dist).slice(0,5);
       return (ACTIVE?"目前策略："+pdesc(P):"⛔ "+tf+" 目前沒有規則通過驗證，不給訊號")+"\\n\\n"+(r.length?r.map((x,i)=>(i+1)+". "+x.c+" "+x.q.txt+"\\n"+planTxt(x.c,true)).join("\\n"):"現在沒有接近進場的好機會。")})()`));
+  } else if (c0 === "/news" || t === "新聞") {
+    later.push("news");
   } else if (c0 === "/report" || t === "報告") {
     later.push("report");
   } else if (c0 === "/start" || c0 === "/help") posCmd.push("✅ 已連上你的監控機器人（週期 " + TF + "）。\n\n" + HELP);
 }
 for (const t of posCmd) await send(t);
+
+if (st.news) {
+  const coins = G("JSON.stringify(COINS.concat(POS.map(p=>p.c)))"), set = new Set(JSON.parse(coins));
+  const risk = {};
+  for (const n of st.news.items) {
+    const T = " " + n.title.toUpperCase().replace(/[^A-Z0-9 ]/g, " ") + " ", cs = new Set();
+    for (const c of set) if (c.length >= 3 && T.includes(" " + c + " ")) cs.add(c);
+    for (const [k, v] of Object.entries(NAMES)) if (T.includes(" " + k.trim() + " ") && set.has(v)) cs.add(v);
+    n.coins = [...cs];
+    const hit = RISK_KW.find(([k]) => n.title.toLowerCase().includes(k)); n.risk = hit ? hit[1] : "";
+    if (hit) for (const c of n.coins) if (!risk[c] || risk[c].time < n.time) risk[c] = { kw: hit[1] + "（" + n.title.slice(0, 60) + "）", time: n.time, link: n.link };
+  }
+  st.news.risk = risk; globalThis.__NEWS = st.news; G("NEWS=window.__NEWS;JC.clear()");
+  if (!st.newsW || Date.now() - st.newsW > 55 * 6e4) { fs.mkdirSync("data", { recursive: true }); fs.writeFileSync("data/news.json", JSON.stringify(st.news)); st.newsW = Date.now(); }
+  st.riskSent ??= {};
+  const mine = new Set(JSON.parse(G("JSON.stringify(POS.map(p=>p.c))")));
+  for (const [c, r] of Object.entries(risk)) { const k = c + "|" + r.time; if (st.riskSent[k] || Date.now() - r.time > 12 * 36e5) continue; if (mine.has(c) || c === "BTC" || c === "ETH") { st.riskSent[k] = Date.now(); await send(`📰 ${mine.has(c) ? "你的持倉 " : ""}${c} 有負面新聞：${r.kw}\n${r.link}\n${mine.has(c) ? "建議檢查停損是否已掛好，必要時先減倉。" : "大盤幣出事常會拖累其他幣，這段時間進場要更保守。"}`); } }
+  for (const c of st.news.delist) { const k = "delist|" + c; if (mine.has(c) && !st.riskSent[k]) { st.riskSent[k] = Date.now(); await send(`🚨 你的持倉 ${c} 出現在幣安下架公告裡，請盡快確認並處理。`); } }
+}
+if (later.includes("news")) await send(st.news ? `📰 市場情緒：${st.news.fng ? "恐懼貪婪 " + st.news.fng.value + "（" + st.news.fng.zh + "）" : "?"}\n` + (Object.keys(st.news.risk || {}).length ? "⚠️ 有負面新聞的幣：" + Object.entries(st.news.risk).map(([c, r]) => c + " " + r.kw.split("（")[0]).join("、") + "\n" : "") + "\n最新標題：\n" + st.news.items.slice(0, 6).map(n => "• " + n.title).join("\n") : "📰 還沒抓到新聞，下一輪再試。");
 
 // ---- 累積經驗：記下每個訊號，之後用K線算出真實結果，永久保存 ----
 st.journal ??= [];
@@ -117,7 +168,7 @@ if (!st.journal.length) { try { st.journal = JSON.parse(fs.readFileSync("data/jo
 globalThis.__J = st.journal;
 const jr = JSON.parse(G(`JSON.stringify((()=>{const J=globalThis.__J,ms=TFMS[tf],now=Date.now(),have=new Set(J.map(r=>r.c+"|"+r.tf+"|"+r.t+"|"+r.fam));let added=0,done=0;
  COINS.forEach(c=>{const a=A[c];if(!a||!a.sg)return;a.sg.forEach(g=>{if(g.time<now-6*ms)return;const k=c+"|"+tf+"|"+g.time+"|"+P.fam;if(have.has(k))return;have.add(k);
-  J.push({c,tf,t:g.time,s:g.s,fam:P.fam,stop:g.stop,rr:P.rr,f:g.f,btc:btcRel(g.time,g.s)});added++})});
+  J.push({c,tf,t:g.time,s:g.s,fam:P.fam,stop:g.stop,rr:P.rr,f:g.f,btc:btcRel(g.time,g.s),news:newsRisk(c)?1:0,fng:NEWS&&NEWS.fng?NEWS.fng.value:null});added++})});
  const F=.0005,S=.0003;J.forEach(r=>{if(r.R!==undefined||r.tf!==tf)return;const a=A[r.c];if(!a||!a.kk){if(now-r.t>14*864e5){r.R=0;r.out="無資料"}return}
   const k=a.kk,i=k.findIndex(b=>b.t>r.t);if(i<0)return;const e=k[i].o*(1+S*r.s),dist=(e-r.stop)*r.s;if(!(dist>0)){r.R=0;r.out="無效";return}
   const tp=e+r.s*r.rr*dist;let ex=null,out="";for(let j=i;j<Math.min(k.length,i+48);j++){const b=k[j];if(r.s>0?b.l<=r.stop:b.h>=r.stop){ex=r.stop;out="停損";break}if(r.s>0?b.h>=tp:b.l<=tp){ex=tp;out="停利";break}}
