@@ -30,6 +30,7 @@ input{width:90px;font:inherit;padding:4px 6px;border:1px solid var(--bd);border-
 <div id="busy" style="display:none;background:color-mix(in srgb,#e0a800 18%,transparent);color:#e0a800;border-radius:10px;padding:8px 12px;margin-bottom:8px;font-size:14px"></div>
 <details class="card" id="briefbox" open><summary>📋 打開統整：你不在時發生了什麼＋現在最好的選擇</summary><div id="brief"><p class="mut">正在抓最新行情，抓完馬上用 AI 學好的規則統整給你（約 5～20 秒）…</p></div></details>
 <div class="card"><b>⭐ AI 推薦（進場程度＋歷史勝率最好的前 3 名）</b><div class="mut">只有標「<b style="color:var(--up)">現在可做多／做空</b>」的才是可以下單的，點進去會看到「✅ 可以進場」。其他都只是觀察。<b style="color:var(--dn)">「⏳ 還不能買」代表價格到了附近，但要等這根K線收盤確認轉強，提前買常常會繼續跌到停損。</b></div><div id="rec"></div></div>
+<details class="card" id="chbox" open><summary id="chsum">🏁 挑戰賽</summary><div id="ch"></div></details>
 <details class="card" id="posbox" open><summary id="possum">💼 我的持倉</summary>
 <div class="mut">買了之後填這裡，我會一直盯著，有狀況馬上響＋通知（記得先按下面的🔔開啟提醒）。</div>
 <div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-top:6px">
@@ -447,7 +448,7 @@ async function addCoin(c,silent){if(COINS.includes(c)){if(!silent)pick(c);return
  try{const r=await getK(c);if(!r||r.length<300)throw 0;D[c]=r.map(x=>({t:x[0],o:+x[1],h:+x[2],l:+x[3],c:+x[4],v:+x[5],ct:x[6]}));const k=D[c];if(k[k.length-1].ct>Date.now())k[k.length-1].open=true;
   if(stale(c)){delete D[c];throw 1}A[c]=analyze(k.filter(x=>!x.open),c);COINS.push(c);JC.clear();connect();if(!silent)pick(c);paintAll();return true}
  catch(e){const msg=e===1?`${c} 最近沒有交易（可能已下架），不分析。`:`幣安現貨找不到 ${c}/USDT，或資料太少（要上市一段時間才能分析）。`;if(el&&!silent)el.innerHTML=`<p class='mut'>${msg}</p>`;else alert(msg);return false}}
-function paintAll(){paintBusy();paintNews();paintGrid();paintJournal();paintOpt();paintLearn();paintRules();paint();paintLog();paintRec();paintPos()}
+function paintAll(){paintCh();paintBusy();paintNews();paintGrid();paintJournal();paintOpt();paintLearn();paintRules();paint();paintLog();paintRec();paintPos()}
 /* ===== 預估交易計畫：還沒到進場點時，先算好「大概在哪進、停損停利多少、下多少」 ===== */
 function planOf(c){const a=A[c],j=judge(c);if(!a||!a.e50||stale(c)||busy()||Date.now()-lastMsg>30000)return null;const k=D[c],live=k&&k.length?k[k.length-1].c:a.c;
  if(j.sig){const s=j.sig.s,risk=Math.abs(s.entry-s.stop),lo=s.s>0?s.entry-.3*risk:s.entry-.5*risk,hi=s.s>0?s.entry+.5*risk:s.entry+.3*risk;
@@ -692,10 +693,75 @@ async function toggleWake(){wantWake=!wantWake;if(wantWake){try{wl=await navigat
 document.addEventListener("visibilitychange",async()=>{if(document.visibilityState!=="visible")return;
  if(wantWake){try{wl=await navigator.wakeLock.request("screen")}catch(e){}}
  if(Date.now()-lastMsg>15000){briefDone=false;prevSeen=lsg("lastSeen",prevSeen);refresh()}});
+/* ===== 🏁 挑戰賽：本金 → 目標，幫你排每一筆要做什麼、下多少、開幾倍 ===== */
+const CHR=[.005,.01,.015,.02,.03];let CHC=null;
+function chGet(){return lsg("challenge",null)}
+function chSet(v){lss("challenge",v);CHC=null;paintCh()}
+function chStats(){const O=OPT&&(OPT.ens||OPT.chosen||OPT.best);if(!O||!O.test||!O.test.n||!OPT.cutT||!ACTIVE)return null;
+ const days=Math.max(1,(Date.now()-OPT.cutT)/864e5),perDay=Math.min(2,O.test.n/days); // 一次只做一筆、你也要睡覺：最多算一天 2 筆
+ const winR=(P.exit==="trail"?2:P.rr)*.95,lossR=-1.05,p=Math.min(.9,Math.max(.05,(O.test.avg-lossR)/(winR-lossR)));
+ return{avg:O.test.avg,win:O.test.win,p,winR,lossR,perDay}}
+function chSim(start,target,days,r,S,N){N=N||1500;const n=Math.max(1,Math.round(days*S.perDay));let hit=0,ruin=0;const fin=[];
+ for(let i=0;i<N;i++){let e=start,dd=false,h=false;for(let j=0;j<n;j++){e*=1+r*(Math.random()<S.p?S.winR:S.lossR);if(e<=start*.7)dd=true;if(e>=target){h=true;break}}
+  if(h)hit++;if(dd)ruin++;fin.push(e)}
+ fin.sort((a,b)=>a-b);return{hit:hit/N,ruin:ruin/N,med:fin[Math.floor(N/2)],n}}
+function chPlan(ch){const S=chStats();if(!S)return null;const left=Math.max(.5,(ch.start+ch.days*864e5-Date.now())/864e5);
+ const rows=CHR.map(r=>({r,...chSim(ch.eq,ch.target,left,r,S)})),okRows=rows.filter(x=>x.ruin<=.1);
+ const best=(okRows.length?okRows:[rows[0]]).reduce((a,b)=>b.hit>a.hit+.02?b:a);
+ const g=1+best.r*S.avg,need=S.avg>0&&ch.target>ch.eq?Math.log(ch.target/ch.eq)/Math.log(g):Infinity;
+ return{S,rows,best,left,needTrades:Math.ceil(need),needDays:need/S.perDay}}
+function chOrder(c,eq,r){const p=planOf(c);if(!p)return null;const stopPct=Math.abs(p.entry-p.stop)/p.entry;if(!(stopPct>0))return null;
+ let notional=eq*r/stopPct,lev=Math.max(1,Math.ceil(notional/eq));if(lev>5){lev=5;notional=eq*5}
+ return{p,notional,lev,margin:notional/lev,riskU:notional*stopPct*1.05,winU:notional*Math.abs(p.tp-p.entry)/p.entry*.95}}
+function chStart(){const eq=+$("chEq").value,t=+$("chT").value,d=+$("chD").value;
+ if(!(eq>0)||!(t>eq)||!(d>0)){alert("請填：現在本金、目標（要比本金大）、幾天");return}
+ chSet({start:Date.now(),startEq:eq,eq,target:t,days:d,trade:null,log:[]})}
+function chEnd(){if(confirm("確定要結束這次挑戰？紀錄會清掉。"))chSet(null)}
+function chTake(c){const ch=chGet();if(!ch||ch.trade)return;const pl=CHC||chPlan(ch),o=pl&&chOrder(c,ch.eq,pl.best.r);if(!o)return;
+ ch.trade={c,s:o.p.s,entry:o.p.live,stop:o.p.stop,tp:o.p.tp,margin:o.margin,lev:o.lev,notional:o.notional,riskU:o.riskU,winU:o.winU,t:Date.now(),id:Date.now()};
+ POS.push({id:ch.trade.id,c,s:o.p.s,entry:o.p.live,m:+o.margin.toFixed(2),lev:o.lev,stop:o.p.stop,stop0:o.p.stop,tp:o.p.tp,at:Date.now()});savePos();chSet(ch)}
+function chClose(kind){const ch=chGet();if(!ch||!ch.trade)return;const T=ch.trade;let ne;
+ if(kind==="tp")ne=ch.eq+T.winU;else if(kind==="sl")ne=ch.eq-T.riskU;else{ne=+prompt("平倉後帳戶剩多少 U？",ch.eq.toFixed(2));if(!(ne>=0))return}
+ ch.log.push({c:T.c,s:T.s,t:T.t,end:Date.now(),before:ch.eq,after:ne});ch.eq=ne;ch.trade=null;POS=POS.filter(p=>p.id!==T.id);savePos();chSet(ch)}
+function paintCh(){const el=$("ch");if(!el)return;const ch=chGet(),pct=x=>(x*100).toFixed(0)+"%";
+ if(!ch){if(el.dataset.mode==="form")return;el.dataset.mode="form";$("chsum").textContent="🏁 挑戰賽：設定目標，我幫你一步一步排";
+  el.innerHTML=`<div class="mut">填好後，我會用 AI 驗證過的規則算出：每筆下多少、開幾倍，以及照這個做法在期限內達標的機率。一次只做一筆，做完再做下一筆。</div>
+  <div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-top:8px"><span class="mut">現在本金</span><input id="chEq" type="number" placeholder="例 300"><span class="mut">U，目標</span><input id="chT" type="number" placeholder="例 600"><span class="mut">U，</span><input id="chD" type="number" placeholder="30" style="width:60px"><span class="mut">天內</span><button class="on" onclick="chStart()">開始挑戰</button></div>`;return}
+ el.dataset.mode="run";if(busy()){el.innerHTML="<p class='mut'>正在更新行情，稍等幾秒再排任務…</p>";return}
+ const pl=CHC=CHC&&Date.now()-CHC.at<6e5&&CHC.eq===ch.eq?CHC:(()=>{const x=chPlan(ch);return x?{...x,at:Date.now(),eq:ch.eq}:null})();
+ const left=Math.max(0,(ch.start+ch.days*864e5-Date.now())/864e5),prog=Math.max(0,Math.min(1,(ch.eq-ch.startEq)/(ch.target-ch.startEq))),wins=ch.log.filter(x=>x.after>x.before).length;
+ $("chsum").textContent=`🏁 挑戰賽：${ch.eq.toFixed(0)} / ${ch.target} U・剩 ${left.toFixed(1)} 天${ch.trade?"・持有 "+ch.trade.c:""}`;
+ let h=`<div class="row"><b>${ch.startEq} → ${ch.target} U</b><span class="mut">剩 ${left.toFixed(1)} 天・已做 ${ch.log.length} 筆（賺 ${wins}）</span></div>
+ <div style="background:var(--bd);border-radius:6px;height:10px;margin:6px 0"><div style="background:var(--up);height:10px;border-radius:6px;width:${(prog*100).toFixed(1)}%"></div></div>
+ <div class="mut">現在 ${ch.eq.toFixed(2)} U（${ch.eq>=ch.startEq?"+":""}${((ch.eq/ch.startEq-1)*100).toFixed(1)}%）</div>`;
+ if(ch.eq>=ch.target)h+=`<p style="color:var(--up)"><b>🎉 達標了！</b>建議先把獲利領出一部分，再開新挑戰。</p>`;
+ if(!pl)h+=`<p class="mut">AI 現在沒有通過驗證的規則，挑戰暫停，這段時間不要下單。</p>`;
+ else{const b=pl.best;
+  h+=`<p><b>📐 怎麼做：</b>每筆碰到停損最多虧本金的 <b>${(b.r*100).toFixed(1)}%</b>（約 ${(ch.eq*b.r).toFixed(1)} U），碰到停利大約賺 ${(ch.eq*b.r*pl.S.winR).toFixed(1)} U。一次只做一筆。</p>
+  <p class="mut">照目前規則（沒看過的資料：勝率 ${pl.S.win.toFixed(0)}%、平均 ${f2(pl.S.avg)}、大約每天 ${pl.S.perDay.toFixed(1)} 次機會）模擬 1500 次：剩下 ${pl.left.toFixed(1)} 天內<b>達標機率 ${pct(b.hit)}</b>，中途虧到剩 7 成的機率 ${pct(b.ruin)}；一般情況（中位數）會到 ${b.med.toFixed(0)} U。</p>`;
+  if(b.hit<.25)h+=`<p style="color:var(--dn)"><b>⚠️ 這個目標在這個時間內很難達到。</b>把每筆下大一點，爆掉的機率會比達標高很多，我不建議。比較實際的是：${isFinite(pl.needDays)?`時間拉長到大約 ${Math.ceil(pl.needDays)} 天（約 ${pl.needTrades} 筆），或`:""}目標改成 ${b.med.toFixed(0)} U 左右。</p>`;
+  if(ch.trade){const T=ch.trade,k=D[T.c],px=k&&k.length?k[k.length-1].c:null,hitTp=px&&(T.s>0?px>=T.tp:px<=T.tp),hitSl=px&&(T.s>0?px<=T.stop:px>=T.stop);
+   h+=`<div style="border:1px solid var(--bd);border-radius:10px;padding:8px;margin-top:8px"><b>📍 現在任務：抱著 ${T.c} ${T.s>0?"做多":"做空"}</b><br>
+   <span class="mut">進場 ${fp(T.entry)}・停損 <b style="color:var(--dn)">${fp(T.stop)}</b>・停利 <b style="color:var(--up)">${fp(T.tp)}</b>・保證金 ${T.margin.toFixed(1)} U × ${T.lev} 倍${px?"・現價 "+fp(px):""}</span><br>
+   ${hitTp?"<b style='color:var(--up)'>價格已碰到停利 👇</b>":hitSl?"<b style='color:var(--dn)'>價格已碰到停損 👇</b>":"<span class='mut'>停損停利都已掛在幣安就不用盯。碰到其中一個後按下面更新，我再排下一筆。</span>"}
+   <div class="row" style="margin-top:6px;flex-wrap:wrap;gap:6px"><button onclick="chClose('tp')">✅ 停利出場（+${T.winU.toFixed(1)} U）</button><button onclick="chClose('sl')">❌ 停損出場（-${T.riskU.toFixed(1)} U）</button><button onclick="chClose('x')">其他：輸入平倉後本金</button></div></div>`}
+  else{const ready=COINS.filter(c=>{const v=verdict(c);return v&&v.ok}).map(rankOf).sort((a,b)=>b.qual-a.qual);
+   if(ready.length){const x=ready[0],o=chOrder(x.c,ch.eq,b.r);
+    h+=o?`<div style="border:2px solid var(--up);border-radius:10px;padding:8px;margin-top:8px"><b>📍 現在任務：${o.p.s>0?"做多":"做空"} ${x.c}</b>${PC[x.c]?"（🧩 "+FAMZH[PC[x.c].fam]+"）":""}<br>
+    1. 幣安合約 ${futNote(x.c)?futNote(x.c)+"，":""}${x.c}USDT，<b>逐倉 ${o.lev} 倍</b>，保證金 <b>${o.margin.toFixed(1)} U</b>（倉位約 ${o.notional.toFixed(0)} U）<br>
+    2. 限價單掛在 <b>${fp(o.p.lo)}～${fp(o.p.hi)}</b>，${o.p.s>0?"現價高於 "+fp(o.p.hi):"現價低於 "+fp(o.p.lo)}就不要追<br>
+    3. 同時掛停損 <b style="color:var(--dn)">${fp(o.p.stop)}</b>、停利 <b style="color:var(--up)">${fp(o.p.tp)}</b><br>
+    <span class="mut">碰停損虧約 ${o.riskU.toFixed(1)} U、碰停利賺約 ${o.winU.toFixed(1)} U。有效到這根K線收盤（還有 ${closeIn(x.c)}）。</span><br>
+    <button class="on" style="margin-top:6px" onclick="chTake('${x.c}')">我已經照這樣下單了</button></div>`:""}
+   else h+=`<div style="border:1px solid var(--bd);border-radius:10px;padding:8px;margin-top:8px"><b>📍 現在任務：等</b><br><span class="mut">現在沒有 ✅ 可以進場的幣，<b>不要下單</b>。出現時 Telegram 會通知你，打開這裡就會告訴你下哪個、幾倍、多少 U。</span></div>`}}
+ if(ch.log.length)h+=`<details style="margin-top:8px"><summary class="mut">紀錄（${ch.log.length} 筆）</summary>`+ch.log.slice().reverse().map(x=>`<div class="mut">${hm(x.end)} ${x.c} ${x.s>0?"多":"空"}：${x.before.toFixed(1)} → <b style="color:${x.after>=x.before?"var(--up)":"var(--dn)"}">${x.after.toFixed(1)}</b> U</div>`).join("")+`</details>`;
+ h+=`<div class="row" style="margin-top:8px"><span class="mut">Telegram 打 /goal ${ch.eq.toFixed(0)} ${ch.target} ${Math.ceil(left)}，✅ 通知也會照挑戰算好下多少。</span><button onclick="chEnd()">結束挑戰</button></div>`;
+ el.innerHTML=h}
+
 analyze=(f=>(k,c)=>withC(c,()=>f(k,c)))(analyze);judge0=(f=>c=>withC(c,()=>f(c)))(judge0);planOf=(f=>c=>withC(c,()=>f(c)))(planOf);
 planTxt=(f=>(c,s)=>withC(c,()=>f(c,s)))(planTxt);rankOf=(f=>c=>withC(c,()=>f(c)))(rankOf);verdict=(f=>c=>withC(c,()=>f(c)))(verdict);
 evalPos=(f=>p=>withC(p&&p.c,()=>f(p)))(evalPos);paint=(f=>()=>withC(cur,f))(paint);
-setInterval(checkAlerts,2000);setInterval(paintLog,5000);setInterval(()=>{if(document.visibilityState!=="visible")return;if(CLOUD)refreshModel();else runOpt()},CLOUD?3e5:9e5);setInterval(()=>{if(CLOUD&&document.visibilityState==="visible")refreshModel()},3e5);setInterval(()=>{checkPos();paintPos();paintRec()},2000);
+setInterval(checkAlerts,2000);setInterval(paintLog,5000);setInterval(()=>{if(document.visibilityState!=="visible")return;if(CLOUD)refreshModel();else runOpt()},CLOUD?3e5:9e5);setInterval(()=>{if(CLOUD&&document.visibilityState==="visible")refreshModel()},3e5);setInterval(()=>{checkPos();paintPos();paintRec();if(!(document.activeElement&&/^ch[ETD]$/.test(document.activeElement.id)))paintCh()},2000);
 $("eq").oninput=paint;addEventListener("resize",paint);setInterval(paint,1000);load();
 </script>
 </body>

@@ -58,6 +58,8 @@ const HELP = `指令：
 /status 現在推薦（只有 ✅ 才是可以下單）
 /report 累積經驗報告
 /news 新聞與市場情緒
+/alive 確認雲端有在跑、為什麼沒訊號
+/goal 300 600 30　挑戰賽：本金 300 → 600，30 天（/goal 看進度，/goal off 結束）
 提醒：雲端大約每 1 分鐘更新一次價格，K線收盤後 1～2 分鐘內就會通知。停損一定要在交易所掛好。
 （網頁上「我的持倉」存在手機裡，雲端看不到；要雲端幫你盯持倉，請用 /long 或 /short 加進來。）`;
 if (!TOKEN) console.log("❌ 沒有讀到 TG_TOKEN：請到 Settings → Secrets → Actions 新增，名稱要完全是 TG_TOKEN");
@@ -74,7 +76,7 @@ async function pollTG(waitSec) {
     if (m.chat.id !== st.chat) continue; // 只聽你本人
     cmds.push(m.text.trim());
   }
-  for (const t of cmds) if (/^\/equity/i.test(t)) { const v = +t.split(/\s+/)[1]; if (v > 0) { st.equity = v; els.eq && (els.eq.value = String(v)); } }
+  for (const t of cmds) if (/^\/equity/i.test(t)) { const v = +t.split(/\s+/)[1]; if (v > 0) { st.equity = v; els.eq && (els.eq.value = String(v)); if (st.goal) st.goal.eq = v; } }
   return cmds;
 }
 const firstCmds = await pollTG(0);
@@ -156,6 +158,23 @@ G(`globalThis.cloudUpd=async function(){let closed=0;const now=Date.now();
   const after=arr.filter(x=>!x.open).length;if(after!==before||!A[c]){A[c]=analyze(arr.filter(x=>!x.open),c);closed++}}catch(e){}});
  lastMsg=Date.now();JC.clear();if(closed)learn();return closed}`);
 
+// ---- 挑戰賽 ----
+function goalLine(c) { // 回傳這個幣照挑戰該下多少
+  if (!st.goal) return "";
+  return G(`(()=>{const ch=${JSON.stringify(st.goal)},pl=chPlan(ch);if(!pl)return"";const o=chOrder(${JSON.stringify(c)},ch.eq,pl.best.r);if(!o)return"";
+    return "\\n\\n🏁 挑戰賽（現在 "+ch.eq.toFixed(0)+" → "+ch.target+" U）：逐倉 "+o.lev+" 倍、保證金 "+o.margin.toFixed(1)+" U（倉位約 "+o.notional.toFixed(0)+" U）\\n碰停損虧約 "+o.riskU.toFixed(1)+" U、碰停利賺約 "+o.winU.toFixed(1)+" U\\n平倉後傳 /equity 新本金，我再排下一筆"})()`);
+}
+function goalStatus() {
+  const g = st.goal; if (!g) return "還沒有挑戰。傳 /goal 本金 目標 天數，例如 /goal 300 600 30";
+  return G(`(()=>{const ch=${JSON.stringify(g)},pl=chPlan(ch),left=Math.max(0,(ch.start+ch.days*864e5-Date.now())/864e5),pct=x=>(x*100).toFixed(0)+"%";
+    let t="🏁 挑戰賽："+ch.startEq+" → "+ch.target+" U\\n現在 "+ch.eq.toFixed(2)+" U（"+(ch.eq>=ch.startEq?"+":"")+((ch.eq/ch.startEq-1)*100).toFixed(1)+"%），剩 "+left.toFixed(1)+" 天\\n";
+    if(ch.eq>=ch.target)return t+"🎉 達標了！建議先把獲利領出一部分。";
+    if(!pl)return t+"AI 現在沒有通過驗證的規則，先不要下單。";const b=pl.best;
+    t+="每筆碰停損最多虧本金 "+(b.r*100).toFixed(1)+"%（約 "+(ch.eq*b.r).toFixed(1)+" U），一次只做一筆。\\n照目前規則模擬：期限內達標機率 "+pct(b.hit)+"、中途虧到剩 7 成的機率 "+pct(b.ruin)+"，一般會到 "+b.med.toFixed(0)+" U。";
+    if(b.hit<.25)t+="\\n⚠️ 這個目標在這個時間內很難達到，下更大只會更容易爆掉。比較實際："+(isFinite(pl.needDays)?"時間拉長到約 "+Math.ceil(pl.needDays)+" 天，或":"")+"目標改成約 "+b.med.toFixed(0)+" U。";
+    return t+"\\n\\n現在任務：等 ✅ 通知，收到才下單。"})()`);
+}
+
 // ---- 處理 Telegram 指令 ----
 async function handleCmds(cmds) {
   const out = [], later = [];
@@ -176,6 +195,10 @@ async function handleCmds(cmds) {
     } else if (c0 === "/status") {
       out.push(G(`(()=>{const r=COINS.map(rankOf).filter(x=>x.stage>=3&&x.qual>0).sort((a,b)=>b.stage-a.stage||b.qual-a.qual||a.dist-b.dist).slice(0,5);
         return (ACTIVE?"目前策略："+pdesc(P):"⛔ "+tf+" 目前沒有規則通過驗證，不給訊號")+"\\n\\n"+(r.length?r.map((x,i)=>(i+1)+". "+x.c+" "+x.q.txt+(PC[x.c]?"（🧩 "+FAMZH[PC[x.c].fam]+"）":"")+"\\n"+planTxt(x.c,true)).join("\\n"):"現在沒有接近進場的好機會。")})()`));
+    } else if (c0 === "/goal") {
+      if (/^off$/i.test(a[1] || "")) { st.goal = null; out.push("🏁 挑戰賽已結束。"); }
+      else if (a.length >= 4) { const e = +a[1], tg = +a[2], d = +a[3]; if (e > 0 && tg > e && d > 0) { st.goal = { start: Date.now(), startEq: e, eq: e, target: tg, days: d }; st.equity = e; out.push(goalStatus()); } else out.push("格式：/goal 本金 目標 天數，例 /goal 300 600 30（目標要比本金大）"); }
+      else out.push(goalStatus());
     } else if (c0 === "/news" || t === "新聞") {
       later.push("news");
     } else if (c0 === "/report" || t === "報告") {
@@ -243,6 +266,7 @@ async function alerts() {
    POS.forEach(p=>{const e=evalPos(p);if(e.lv!=="ok"&&e.px)out.push({k:"pos|"+p.id,msg:e.msg,t:"💼 "+p.c+" "+(p.s>0?"做多":"做空")+"："+e.msg+(e.pnl!==undefined?"\\n目前 "+(e.pnl>=0?"+":"")+e.pnl.toFixed(2)+" U（"+e.pct.toFixed(1)+"%）":"")})});
    out.forEach(m=>{if(m.c){const n=futNote(m.c);if(n)m.t+="\\n"+n}});
    return out})())`));
+  for (const m of msgs) if (m.k.startsWith("sig|") && st.goal) m.t += goalLine(m.c);
   let n = 0;
   for (const m of msgs) {
     if (m.k.startsWith("pos|")) { if (st.posMsg[m.k] === m.msg) continue; st.posMsg[m.k] = m.msg; await send(m.t); n++; continue; }
@@ -257,12 +281,29 @@ async function alerts() {
   return n;
 }
 
+
+// ---- 每天 09:00、21:00 回報一次「我還活著」：讓你知道雲端有在跑、為什麼沒訊號 ----
+async function heartbeat(force) {
+  const d = new Date(), h = d.getHours(); if (!force && h < 9) return;
+  const slot = d.toLocaleDateString("sv") + (h >= 21 ? "b" : "a"); if (!force && st.hb === slot) return;
+  const now = Date.now(), n12 = (st.journal || []).filter(r => r.t > now - 12 * 36e5).length;
+  const txt = G(`(()=>{const dz=x=>x>0?"向上":x<0?"向下":"不明",b1=A.BTC&&A.BTC.tdir?A.BTC.tdir.get(A.BTC.lastT):0,bd=btcDayDir(Date.now()),S=JSTAT;
+    return "🫀 雲端正常運作中：每 1 分鐘看一次 "+COINS.length+" 個幣，每 15 分鐘重新學習。\\n\\n"
+    +"目前規則："+pdesc(P)+(ACTIVE?"（通過驗證）":"（沒通過驗證，暫停給訊號）")+"\\n"
+    +(Object.keys(PC).length?"🧩 另外 "+Object.keys(PC).length+" 個幣改用比較適合它的策略\\n":"")
+    +"\\nBTC 短線（1 小時）："+dz(b1||0)+"\\nBTC 大方向（日線 200 日均線）："+dz(bd)+"\\n"
+    +((P.btc||P.htf)&&b1&&bd&&b1!==bd?"⚠️ 短線跟大方向相反：規則規定這時候多空都不做，所以訊號會很少——這是在保護你，不是壞掉。\\n":"")
+    +"\\n過去 12 小時出現訊號：${n12} 個（只有 ✅ 會通知你）\\n"
+    +(S&&S.n?"累積經驗："+S.n+" 筆有結果，勝率 "+S.all.win.toFixed(0)+"%、平均 "+f2(S.all.avg):"累積經驗：還在收集中")})()`);
+  st.hb = slot; await send(txt);
+}
 // ---- 第一輪 ----
 await handleCmds(firstCmds);
 await newsRiskScan();
 modelWrite();
 journalUpdate();
 let sentN = await alerts();
+await heartbeat(firstCmds.some(t => /^\/alive|^\/ping/i.test(t)));
 save();
 
 // ---- 接著連續盯盤：每 1 分鐘更新價格，Telegram 指令隨到隨回 ----
@@ -287,6 +328,7 @@ while (Date.now() - T0 < RUN_MS) {
     if (await newsUpdate()) await newsRiskScan();
     if (Date.now() - lastJ > 10 * 6e4) { journalUpdate(); lastJ = Date.now(); }
     sentN += await alerts();
+    await heartbeat(cmds.some(t => /^\/alive|^\/ping/i.test(t)));
   } catch (e) { console.log("這一輪出錯，下一輪再試：", e.message); }
   save();
 }
