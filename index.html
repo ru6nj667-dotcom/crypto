@@ -52,6 +52,7 @@ input{width:90px;font:inherit;padding:4px 6px;border:1px solid var(--bd);border-
 </section>
 <section class="pg" data-pg="rec">
 <div class="card"><b>⭐ AI 推薦（進場程度＋歷史勝率最好的前 3 名）</b><div class="mut">只有標「<b style="color:var(--up)">現在可做多／做空</b>」的才是可以下單的，點進去會看到「✅ 可以進場」。其他都只是觀察。<b style="color:var(--dn)">「⏳ 還不能買」代表價格到了附近，但要等這根K線收盤確認轉強，提前買常常會繼續跌到停損。</b></div><div id="rec"></div></div>
+<details class="card" open><summary id="sqzsum">🚀 蓄勢待發：快要大動的幣</summary><div id="sqz"></div></details>
 <div class="card"><b>📋 全部幣（依方向分）</b><div class="tabs" id="sides"></div><div class="mut" id="sidehint"></div><table><thead><tr><th>幣種（點一下看K線）</th><th>現價</th><th>狀態</th></tr></thead><tbody id="list"></tbody></table></div>
 </section>
 <section class="pg" data-pg="coin">
@@ -106,7 +107,7 @@ input{width:90px;font:inherit;padding:4px 6px;border:1px solid var(--bd);border-
 let COINS=[];const TFS=["3m","15m","1h","4h"];let side=1;
 const P={htf:false,exit:"fixed",crowd:false,fam:"bo",n:20,win:12,tol:.25,stop:.5,rr:2,risk:.01,lev:2,vol:1.2,retest:true,btc:false,L:40,z:2,g:null};
 // 每個幣用最適合自己的策略：PC[幣]＝這個幣改用的規則（沒有就用全體最好的規則）。只在「沒看過的資料」上證明比單一策略賺更多時才啟用
-let PC={};const FAMZH={bo:"突破回踩",pb:"順勢回檔",mr:"超跌反彈"};
+let PC={};const FAMZH={bo:"突破回踩",pb:"順勢回檔",mr:"超跌反彈",sq:"蓄勢突破"};
 function withC(c,f){const g=c&&PC[c];if(!g)return f();const save={...P};Object.assign(P,g);try{return f()}finally{Object.assign(P,save)}}
 function ruleOf(c){return PC[c]?{...P,...PC[c]}:P}
 const RESTS=["https://data-api.binance.vision","https://api.binance.com","https://api1.binance.com"],WSU="wss://data-stream.binance.vision";let REST=RESTS[0];
@@ -124,8 +125,9 @@ function base(k){const n=k.length,cl=k.map(x=>x.c),e50=ema(cl,50),e200=ema(cl,20
  const tdir=new Map();for(let t=0;t<n;t++)tdir.set(k[t].t,e50[t]>e200[t]*1.001?1:e50[t]<e200[t]*.999?-1:0);
  const rsi=new Array(n).fill(50);let ag=0,al=0;for(let i=1;i<n;i++){const d=cl[i]-cl[i-1],g=Math.max(d,0),l=Math.max(-d,0);if(i<=14){ag+=g/14;al+=l/14}else{ag=(ag*13+g)/14;al=(al*13+l)/14}if(i>=14)rsi[i]=al===0?100:100-100/(1+ag/al)}
  const sma=new Array(n).fill(NaN),sd=new Array(n).fill(NaN),z=new Array(n).fill(0);for(let i=19;i<n;i++){let m=0;for(let j=i-19;j<=i;j++)m+=cl[j];m/=20;let v=0;for(let j=i-19;j<=i;j++)v+=(cl[j]-m)**2;sma[i]=m;sd[i]=Math.sqrt(v/20);z[i]=sd[i]>0?(cl[i]-m)/sd[i]:0}
- return{cl,e50,e200,atr,R,tdir,rsi,sma,sd,z}}
-function sigs(k,B,p,c){if(p.fam==="pb"||p.fam==="mr")return sigs2(k,B,p,c);const n=k.length,{e50,e200,atr}=B,{hh,ll,av}=B.R[p.n],sg=[];let pend=null;
+ const bw=sma.map((m,i)=>m>0?sd[i]/m:NaN),bwr=new Array(n).fill(1);for(let i=140;i<n;i++){let lo=0,c2=0;for(let j=i-120;j<i;j++){if(bw[j]<bw[i])lo++;c2++}bwr[i]=lo/c2} // 0＝最近 120 根裡最壓縮
+ return{cl,e50,e200,atr,R,tdir,rsi,sma,sd,z,bwr}}
+function sigs(k,B,p,c){if(p.fam==="pb"||p.fam==="mr"||p.fam==="sq")return sigs2(k,B,p,c);const n=k.length,{e50,e200,atr}=B,{hh,ll,av}=B.R[p.n],sg=[];let pend=null;
  for(let t=210;t<n;t++){const x=k[t],T=atr[t],volR=av[t]>0?x.v/av[t]:0,body=Math.abs(x.c-x.o),lw=Math.min(x.o,x.c)-x.l,uw=x.h-Math.max(x.o,x.c),
    bullC=x.c>x.o||lw>=body,bearC=x.c<x.o||uw>=body;
   const mk=(s,stop,vr)=>({t,time:x.t,s,entry:x.c,stop,atr:T,f:{vol:vr,trend:(e50[t]-e200[t])/e200[t]*100*s,atrp:T/x.c*100,ext:(x.c-e50[t])/T*s,wick:(s>0?lw:uw)>=body?"影線":"實體"}});
@@ -142,12 +144,14 @@ function sigs2(k,B,p,c){const n=k.length,{e50,e200,atr,rsi,z}=B,av=B.R[20].av,sg
  for(let t=210;t<n;t++){const x=k[t],T=atr[t],volR=av[t]>0?x.v/av[t]:0,body=Math.abs(x.c-x.o),lw=Math.min(x.o,x.c)-x.l,uw=x.h-Math.max(x.o,x.c);
   const up=e50[t]>e200[t]&&x.c>e200[t],dn=e50[t]<e200[t]&&x.c<e200[t];let s=0;
   if(p.fam==="pb"){if(up&&rsi[t-1]<p.L&&rsi[t]>=p.L&&x.c>x.o)s=1;else if(dn&&rsi[t-1]>100-p.L&&rsi[t]<=100-p.L&&x.c<x.o)s=-1}
+  else if(p.fam==="sq"){const hh=B.R[20].hh,ll=B.R[20].ll,sq=B.bwr[t-1]<=p.q&&volR>=p.vol;
+   if(sq&&x.c>hh[t]&&x.c>x.o&&(!p.tr||e50[t]>e200[t]))s=1;else if(sq&&x.c<ll[t]&&x.c<x.o&&(!p.tr||e50[t]<e200[t]))s=-1} // 盤整蓄勢（波動壓縮）後收盤突破
   else{if(up&&z[t-1]<-p.z&&z[t]>z[t-1]&&x.c>x.o)s=1;else if(dn&&z[t-1]>p.z&&z[t]<z[t-1]&&x.c<x.o)s=-1}
   if(s)sg.push({t,time:x.t,s,entry:x.c,stop:x.c-s*p.stop*T,atr:T,f:{vol:volR,trend:(e50[t]-e200[t])/e200[t]*100*s,atrp:T/x.c*100,ext:(x.c-e50[t])/T*s,wick:(s>0?lw:uw)>=body?"影線":"實體"}})}
  return{sg:filt(sg,p,c),pend:null}}
 function analyze(k,c){const n=k.length;if(n<220)return{sg:[],pend:null,n,kk:k,bt:{n:0,win:0,avg:0,tr:[]}};
  const B=base(k),{sg,pend}=sigs(k,B,P,c);let hn=-Infinity,ln=Infinity;for(let j=n-P.n;j<n;j++){hn=Math.max(hn,k[j].h);ln=Math.min(ln,k[j].l)}
- return{sg,pend,n,kk:k,B,rsiL:B.rsi[n-1],zL:B.z[n-1],lowB:B.sma[n-1]-P.z*B.sd[n-1],upB:B.sma[n-1]+P.z*B.sd[n-1],e50:B.e50,e200:B.e200,tdir:B.tdir,bt:backtest(k,sg,P),atr:B.atr[n-1],hn,ln,lastT:k[n-1].t,c:B.cl[n-1]}}
+ return{sg,pend,n,kk:k,B,bwrL:B.bwr[n-1],rsiL:B.rsi[n-1],zL:B.z[n-1],lowB:B.sma[n-1]-P.z*B.sd[n-1],upB:B.sma[n-1]+P.z*B.sd[n-1],e50:B.e50,e200:B.e200,tdir:B.tdir,bt:backtest(k,sg,P),atr:B.atr[n-1],hn,ln,lastT:k[n-1].t,c:B.cl[n-1]}}
 /* 出場模擬（回測、累積經驗、事後統整共用）：fixed＝固定停利；trail＝賺到 1R 後停損移到成本，之後跟著最高（低）價移動 2 倍 ATR，不設固定停利 */
 function simTrade(k,i,s,e,stop,rr,exit,atr){const dist=(e-stop)*s;if(!(dist>0))return null;const tp=e+s*rr*dist,H=exit==="trail"?96:48;let st=stop,best=e,j=i;
  for(;j<Math.min(k.length,i+H);j++){const b=k[j];
@@ -183,7 +187,8 @@ function lss(k,v){try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}}
 const GRID=[];for(const n of[20,50])for(const stop of[.5,1,1.5])for(const rr of[1.5,2,3])for(const vol of[0,1.2])for(const retest of[true,false])for(const btc of[false,true])GRID.push({fam:"bo",n,stop,rr,vol,retest,btc});
 for(const L of[35,40,45])for(const stop of[1,1.5,2])for(const rr of[1.5,2,3])for(const btc of[false,true])GRID.push({fam:"pb",L,stop,rr,btc});
 for(const z of[2,2.5])for(const stop of[1,1.5,2])for(const rr of[1,1.5,2])for(const btc of[false,true])GRID.push({fam:"mr",z,stop,rr,btc});
-const DIMS={bo:{n:[20,50],stop:[.5,1,1.5],rr:[1.5,2,3],vol:[0,1.2],retest:[true,false],btc:[false,true]},pb:{L:[35,40,45],stop:[1,1.5,2],rr:[1.5,2,3],btc:[false,true]},mr:{z:[2,2.5],stop:[1,1.5,2],rr:[1,1.5,2],btc:[false,true]}};
+for(const q of[.15,.3])for(const stop of[1,1.5])for(const rr of[2,3])for(const vol of[0,1.5])for(const tr of[false,true])for(const btc of[false,true])GRID.push({fam:"sq",n:20,q,stop,rr,vol,tr,btc});
+const DIMS={bo:{n:[20,50],stop:[.5,1,1.5],rr:[1.5,2,3],vol:[0,1.2],retest:[true,false],btc:[false,true]},pb:{L:[35,40,45],stop:[1,1.5,2],rr:[1.5,2,3],btc:[false,true]},sq:{q:[.15,.3],stop:[1,1.5],rr:[2,3],vol:[0,1.5],tr:[false,true],btc:[false,true]},mr:{z:[2,2.5],stop:[1,1.5,2],rr:[1,1.5,2],btc:[false,true]}};
 const FAMN={bo:"突破回踩",pb:"順勢回檔",mr:"趨勢中的超跌反彈"};
 let ACTIVE=false,OPT=null,optBusy=false;
 function TPL(){return P.exit==="trail"?"第一目標（到了不賣，改移動停損）":"停利（"+P.rr+"R）"}
@@ -191,6 +196,7 @@ function same(v){const e=P.ext||{};return v.htf===!!e.htf&&v.exit===(e.exit||"fi
 function extDesc(v){v=v||{};return[v.htf?"BTC 日線大方向一致才做":"",v.exit==="trail"?"移動停損出場（讓利潤跑）":"",v.crowd?"合約太擁擠不追":""].filter(Boolean).join("、")||"沒有加升級"}
 function pdesc(g){const tail=`${g.btc?"、只做跟 BTC 同方向":""}；停損 ${g.stop} 倍 ATR、停利 ${g.rr} 倍風險`;
  if(g.fam==="pb")return`【順勢回檔】趨勢向上時，RSI 跌破 ${g.L} 後重新站回就做多（空頭相反）`+tail;
+ if(g.fam==="sq")return`【蓄勢突破】波動壓縮到最近 120 根的最低 ${Math.round(g.q*100)}% 後${g.vol?"、放量":""}，收盤突破 20 根高點做多、跌破低點做空${g.tr?"（只順大趨勢）":""}`+tail;
  if(g.fam==="mr")return`【超跌反彈】趨勢向上時，價格跌出布林帶 ${g.z} 個標準差後轉強就做多（空頭相反）`+tail;
  return`【突破回踩】突破近 ${g.n} 根高/低點${g.vol?"、要放量":"、不看量"}、${g.retest?"等回踩再進":"突破當根收盤就進"}`+tail}
 /* ===== 雲端大腦：GitHub 雲端 24 小時一直在學習，把結果存成 data/model.json。網頁打開時直接用雲端學好的結果，不用重新學 ===== */
@@ -236,7 +242,7 @@ async function optimize(){if(optBusy||!A.BTC||!A.BTC.B)return;optBusy=true;const
  const pass=chosen?stratOK(chosen):stratOK(best);
  // 第三階段：融會貫通——每個幣從幾個好策略裡挑「在它自己過去資料上最好的」，再用沒看過的資料檢查這樣做是不是真的比單一策略好
  let ens=null;const PCn={};
- if(best&&pass){const ext=chosen?chosen.v:BASEX,cands=[best];["bo","pb","mr"].forEach(f=>{const r=ok.find(x=>x.g.fam===f);if(r&&!cands.includes(r))cands.push(r)});
+ if(best&&pass){const ext=chosen?chosen.v:BASEX,cands=[best];["bo","pb","mr","sq"].forEach(f=>{const r=ok.find(x=>x.g.fam===f);if(r&&!cands.includes(r))cands.push(r)});
   if(cands.length>1){const per={};
    for(const r of cands){const g={...P,...r.g,...ext};coins.forEach(c=>{const a=A[c],t=backtest(a.kk,sigs(a.kk,a.B,g,c).sg,g).tr;(per[c]=per[c]||[]).push({r,tr:t.filter(x=>x.time<cutT).map(x=>x.R),te:t.filter(x=>x.time>=cutT).map(x=>x.R)})});
     $("optsum").textContent="🧠 AI 正在幫每個幣挑最適合的策略…";await new Promise(r=>setTimeout(r,0));if(tf!==myTf||myL!==loadId){optBusy=false;return}}
@@ -347,6 +353,8 @@ function paintLog(){const el=$("log");if(!el)return;const L=logUpdate(),done=L.f
 function paintRules(){const el=$("rules");if(!el)return;const bt=P.btc?"，而且 BTC 也要是同方向":"";let core;
  if(P.fam==="pb")core=`<li>現在用的策略：<b>順勢回檔</b>。大方向：做多要 EMA50 在 EMA200 上方、價格在 EMA200 上方${bt}（做空相反）。</li>
 <li>進場：RSI（強弱指標）先跌到 ${P.L} 以下（代表回檔），然後K線<b>收盤</b>重新站回 ${P.L} 以上、而且收漲 → 這根收盤就是進場時機。做空是 RSI 先漲到 ${100-P.L} 以上再跌回來、收跌。</li>`;
+ else if(P.fam==="sq")core=`<li>現在用的策略：<b>盤整蓄勢突破</b>。先找「波動壓縮」的幣：布林帶寬度縮到最近 120 根裡最窄的 ${Math.round(P.q*100)}%（代表快要大動）${P.tr?"，而且只順大趨勢做":""}${bt}。</li>
+<li>進場：K線<b>收盤</b>突破最近 20 根高點${P.vol?"、而且成交量放大":""} → 做多；跌破 20 根低點 → 做空。方向要等突破才知道，不預先猜。</li>`;
  else if(P.fam==="mr")core=`<li>現在用的策略：<b>趨勢中的超跌反彈</b>。只在大趨勢向上時做多（EMA50 在 EMA200 上方、價格在 EMA200 上方${bt}），空頭時只做空。</li>
 <li>進場：價格跌出布林帶下緣（低於 20 根平均 ${P.z} 個標準差），然後開始轉強、收漲 → 這根收盤進場。做空相反。研究顯示這種方法只在順勢時有效，逆勢抄底會大虧，所以有趨勢限制。</li>`;
  else core=`<li>現在用的策略：<b>突破回踩</b>。大方向：做多要 EMA50 在 EMA200 上方、價格在 EMA50 上方${bt}（做空相反）。</li>
@@ -508,7 +516,7 @@ function planTxt(c,short){const p=planOf(c);if(!p)return"";const eq=+($("eq")&&$
 /* ===== 推薦 ===== */
 function rankOf(c){const q=judge(c),a=A[c]||{},bt=a.bt||{n:0},T=a.atr||1,d=dirOf(c);
  const pz=planOf(c),stage=q.sig&&!q.weak?4:(q.near||(pz&&pz.inZone))?3:q.sig?2:q.txt==="等待"&&d!==0?1:0;
- const qual=bt.n>=5?bt.avg:-9,dist=P.fam==="pb"&&a.rsiL!==undefined?Math.abs(a.rsiL-(d>0?P.L:100-P.L))/10:P.fam==="mr"&&a.zL!==undefined?Math.abs(a.zL+d*P.z):a.pend?Math.abs(a.c-a.pend.lv)/T:a.c?Math.abs((d>0?a.hn:a.ln)-a.c)/T:99;
+ const qual=bt.n>=5?bt.avg:-9,dist=P.fam==="sq"?(a.bwrL<=P.q&&a.c?Math.min(Math.abs(a.hn-a.c),Math.abs(a.c-a.ln))/T:99):P.fam==="pb"&&a.rsiL!==undefined?Math.abs(a.rsiL-(d>0?P.L:100-P.L))/10:P.fam==="mr"&&a.zL!==undefined?Math.abs(a.zL+d*P.z):a.pend?Math.abs(a.c-a.pend.lv)/T:a.c?Math.abs((d>0?a.hn:a.ln)-a.c)/T:99;
  return{c,q,stage,qual,dist,bt,d}}
 function paintRec(){const el=$("rec");if(!el)return;const sc=$("scan");if(sc&&+sc.value!==SCAN)sc.value=String(SCAN);
  if(!OPT){el.innerHTML="<span class='mut'>AI 學習中，學完才推薦…</span>";return}
@@ -584,7 +592,7 @@ function judge0(coin){
   const bt=a.bt,lb=learnBlock(s)||journalBlock(coin,s)||newsRisk(coin),weak=!ACTIVE||bt.n<5||bt.avg<=0||!!lb;
   const until=hm(a.lastT+2*TFMS[tf]);
   return{txt:"候選"+name+(!ACTIVE?"・規則未通過":lb?(/新聞/.test(lb)?"・新聞風險":"・學習排除"):weak?"・歷史不佳":""),cls:weak?"":cls,weak,sig:{s,tp,rr,d,live},
-   why:`${P.fam==="pb"?(s.s>0?"多頭回檔後 RSI 重新轉強":"空頭反彈後 RSI 重新轉弱"):P.fam==="mr"?(s.s>0?"多頭中超跌後轉強":"空頭中超漲後轉弱"):P.retest?(s.s>0?"突破後回踩守住":"跌破後反彈被壓回"):(s.s>0?"收盤突破":"收盤跌破")}。現在可考慮${name}，停損 ${fp(s.stop)}、${P.exit==="trail"?"第一目標":"停利"} ${fp(tp)}${P.exit==="trail"?"（賺到 1R 後停損移到成本，之後跟著價格移動，讓利潤跑）":""}。有效到 ${until}（下一根K線收盤），之後作廢。`+(!ACTIVE?"但 AI 在這個週期找不到能通過驗證的規則，不建議進場。":lb?(/新聞/.test(lb)?`但${lb}，先不要碰。`:`但這筆屬於${lb}，過去這種情況多半做錯，不建議。`):weak?"但此規則在這個幣過去不賺錢，不建議。":"")}}
+   why:`${P.fam==="sq"?(s.s>0?"蓄勢後放量往上突破":"蓄勢後往下跌破"):P.fam==="pb"?(s.s>0?"多頭回檔後 RSI 重新轉強":"空頭反彈後 RSI 重新轉弱"):P.fam==="mr"?(s.s>0?"多頭中超跌後轉強":"空頭中超漲後轉弱"):P.retest?(s.s>0?"突破後回踩守住":"跌破後反彈被壓回"):(s.s>0?"收盤突破":"收盤跌破")}。現在可考慮${name}，停損 ${fp(s.stop)}、${P.exit==="trail"?"第一目標":"停利"} ${fp(tp)}${P.exit==="trail"?"（賺到 1R 後停損移到成本，之後跟著價格移動，讓利潤跑）":""}。有效到 ${until}（下一根K線收盤），之後作廢。`+(!ACTIVE?"但 AI 在這個週期找不到能通過驗證的規則，不建議進場。":lb?(/新聞/.test(lb)?`但${lb}，先不要碰。`:`但這筆屬於${lb}，過去這種情況多半做錯，不建議。`):weak?"但此規則在這個幣過去不賺錢，不建議。":"")}}
  const ms=TFMS[tf],T=a.atr;
  if(a.pend&&P.btc&&btcRel(a.lastT,a.pend.s)!=="順BTC方向")return{txt:"逆大盤，不做",cls:"",why:"已經突破或跌破，但方向跟 BTC 相反，AI 學到這種常常做錯，不做。"};
  if(a.pend){const p=a.pend,end=hm(a.lastT+(p.ex-(a.n-1))*ms+ms),z=p.s>0?`${fp(p.lv)}～${fp(p.lv+P.tol*T)}`:`${fp(p.lv-P.tol*T)}～${fp(p.lv)}`;
@@ -593,6 +601,7 @@ function judge0(coin){
  const e5=a.e50[a.n-1],e2=a.e200[a.n-1];
  if(P.fam==="pb"&&dirOf(coin)!==0&&(dirOf(coin)>0?a.rsiL<P.L:a.rsiL>100-P.L)){const up=dirOf(coin)>0;return{txt:up?"回檔中，等轉強":"反彈中，等轉弱",cls:"",near:true,why:up?`多頭裡已經回檔（RSI ${a.rsiL.toFixed(0)}，低於 ${P.L}）。等K線收盤 RSI 重新站回 ${P.L} 以上、而且收漲 → 做多。`:`空頭裡已經反彈（RSI ${a.rsiL.toFixed(0)}，高於 ${100-P.L}）。等K線收盤 RSI 跌回 ${100-P.L} 以下、而且收跌 → 做空。`}}
  if(P.fam==="mr"&&dirOf(coin)!==0&&(dirOf(coin)>0?a.zL<-P.z:a.zL>P.z)){const up=dirOf(coin)>0;return{txt:up?"超跌中，等轉強":"超漲中，等轉弱",cls:"",near:true,why:up?`多頭裡價格已經跌出布林下緣（${fp(a.lowB)}）。等下一根K線收盤開始回升、而且收漲 → 做多。`:`空頭裡價格已經漲出布林上緣（${fp(a.upB)}）。等下一根K線收盤開始回落、而且收跌 → 做空。`}}
+ if(P.fam==="sq"){const on=a.bwrL!==undefined&&a.bwrL<=P.q;return on?{txt:"蓄勢中，等突破",cls:"",near:true,why:`波動已經壓縮到很低，快要大動。等K線收盤突破 ${fp(a.hn)} → 做多；跌破 ${fp(a.ln)} → 做空。方向要等突破才知道，不要先猜。`}:{txt:"等待",cls:"",why:"還沒進入蓄勢（波動沒有壓縮），這個策略先不看它。"}}
  if(P.fam==="pb"&&dirOf(coin)!==0){const up=dirOf(coin)>0;return{txt:"等待",cls:"",why:up?`多頭趨勢，等回檔：RSI 現在 ${a.rsiL.toFixed(0)}，要先跌到 ${P.L} 以下、再收盤站回 ${P.L} 才做多。現在不追。`:`空頭趨勢，等反彈：RSI 現在 ${a.rsiL.toFixed(0)}，要先漲到 ${100-P.L} 以上、再收盤跌回才做空。現在不追。`}}
  if(P.fam==="mr"&&dirOf(coin)!==0){const up=dirOf(coin)>0;return{txt:"等待",cls:"",why:up?`多頭趨勢，等超跌：價格要跌到布林下緣 ${fp(a.lowB)} 以下、再轉強收漲才做多。現在不追。`:`空頭趨勢，等超漲：價格要漲到布林上緣 ${fp(a.upB)} 以上、再轉弱收跌才做空。現在不追。`}}
  if(a.c>e5&&e5>e2)return{txt:"等待",cls:"",why:`多頭趨勢，但還沒突破。等K線收盤站上 ${fp(a.hn)}（近${P.n}根高點），${P.retest?"再等回踩才進場":"收盤突破那根就是進場點"}。現在不追。`};
@@ -803,7 +812,7 @@ function menu(on){if(!document.body)return;$("drawer").classList.toggle("on",!!o
 function go(p){if(typeof location!=="undefined"&&location.hash!=="#"+p)location.hash=p;else showPg(p)}
 function showPg(p){if(!document.body)return;if(!PAGES.some(x=>x[0]===p))p="home";document.querySelectorAll(".pg").forEach(e=>e.classList.toggle("on",e.dataset.pg===p));
  const g=PAGES.find(x=>x[0]===p);$("ptitle").textContent=g[1]+" "+g[2];document.querySelectorAll("#nav a").forEach(a=>a.classList.toggle("on",a.dataset.pg===p));menu(false);try{scrollTo(0,0)}catch(e){}
- if(p==="coin")setTimeout(()=>{paint();paintAna()},40);if(p==="home")paintHome();if(p==="ch")paintCh();if(p==="pos")paintPos();if(p==="rec")paintRec()}
+ if(p==="coin")setTimeout(()=>{paint();paintAna()},40);if(p==="home")paintHome();if(p==="ch")paintCh();if(p==="pos")paintPos();if(p==="rec"){paintRec();paintSqz()}}
 addEventListener("hashchange",()=>showPg(location.hash.slice(1)));
 function buildNav(){if(!document.body)return;const h=PAGES.map(x=>`<a data-pg="${x[0]}" onclick="go('${x[0]}')"><span style="font-size:20px">${x[1]}</span>${x[2]}</a>`).join("");$("nav").innerHTML=`<div class="mut" style="padding:4px 12px 10px">幣推測・選單</div>`+h;
  $("menuGrid").innerHTML=PAGES.slice(1).map(x=>`<a onclick="go('${x[0]}')"><span style="font-size:20px">${x[1]}</span>${x[2]}</a>`).join("")}
@@ -817,6 +826,14 @@ function paintHome(){const el=$("tiles");if(!el)return;if(loading||!COINS.length
   +t("ai","🧠 AI 規則",ACTIVE?`通過・平均 ${O?f2(O.test.avg):"?"}`:"暫停中",ACTIVE?"":"var(--dn)")
   +t("ai","學習來源",CLOUD?`☁️ 雲端 ${hm(CLOUD.time)} 更新`:"本機學習");
  const td=$("topdot");if(td)td.textContent=Date.now()-lastMsg<30000?"● 即時":"○ 連線中";}
+
+function paintSqz(){const el=$("sqz");if(!el||!el.isConnected)return;if(busy()||!COINS.length){el.innerHTML="<p class='mut'>更新中…</p>";return}
+ const L=COINS.map(c=>{const a=A[c];if(!a||!a.B||a.bwrL===undefined)return null;const n=a.n,R=a.B.R[20];return{c,r:a.bwrL,hh:R.hh[n-1],ll:R.ll[n-1],px:a.c,d:dirOf(c),T:a.atr}}).filter(x=>x&&x.r<=.1&&x.hh>0).sort((a,b)=>a.r-b.r).slice(0,6);
+ $("sqzsum").textContent=`🚀 蓄勢待發：快要大動的幣（${L.length}）`;
+ const useSq=P.fam==="sq"||Object.values(PC).some(g=>g.fam==="sq");
+ el.innerHTML=`<div class="mut">波動壓縮到最近 120 根裡最窄的時候，之後常常會有一段大行情——但<b>往上還是往下要等突破才知道</b>。這裡是讓你先盯著，<b>不是下單訊號</b>。${useSq?"AI 現在有在用「蓄勢突破」策略，真的突破而且條件都過，就會出現 ✅。":"AI 測過「蓄勢突破」策略，目前在沒看過的資料上沒有比現在的規則好，所以突破時不會給 ✅，這裡只當參考，不要自己追。"}</div>`+
+ (L.length?L.map(x=>`<div class="row" style="padding:7px 0;border-bottom:1px solid var(--bd)" onclick="sel('${x.c}')"><div><b>${x.c}</b> <span class="mut">壓縮程度：最近 120 根最窄的 ${Math.max(1,Math.round(x.r*100))}%${x.d?`・大趨勢偏${x.d>0?"多":"空"}`:"・趨勢不明"}</span><br>
+  <span>收盤站上 <b style="color:var(--up)">${fp(x.hh)}</b> → 往上噴；跌破 <b style="color:var(--dn)">${fp(x.ll)}</b> → 往下（現價 ${fp(x.px)}，離上 ${((x.hh/x.px-1)*100).toFixed(1)}%、離下 ${((1-x.ll/x.px)*100).toFixed(1)}%）</span></div><span class="mut">看K線 ›</span></div>`).join(""):"<p class='mut'>現在沒有明顯在蓄勢的幣。</p>")}
 function paintAna(){const el=$("ana");if(!el)return;const c=cur,a=A[c];
  if(!c||!a||!a.e50){el.innerHTML="<p class='mut'>搜尋或點一個幣，我幫你分析要不要買。</p>";return}
  if(busy()){el.innerHTML="<p class='mut'>正在更新行情，稍等幾秒…</p>";return}
@@ -842,7 +859,7 @@ function paintAna(){const el=$("ana");if(!el)return;const c=cur,a=A[c];
 analyze=(f=>(k,c)=>withC(c,()=>f(k,c)))(analyze);judge0=(f=>c=>withC(c,()=>f(c)))(judge0);planOf=(f=>c=>withC(c,()=>f(c)))(planOf);
 planTxt=(f=>(c,s)=>withC(c,()=>f(c,s)))(planTxt);rankOf=(f=>c=>withC(c,()=>f(c)))(rankOf);verdict=(f=>c=>withC(c,()=>f(c)))(verdict);
 evalPos=(f=>p=>withC(p&&p.c,()=>f(p)))(evalPos);paint=(f=>()=>withC(cur,f))(paint);
-setInterval(checkAlerts,2000);setInterval(paintLog,5000);setInterval(()=>{if(document.visibilityState!=="visible")return;if(CLOUD)refreshModel();else runOpt()},CLOUD?3e5:9e5);setInterval(()=>{if(CLOUD&&document.visibilityState==="visible")refreshModel()},3e5);setInterval(()=>{checkPos();paintPos();paintRec();paintHome();if(document.querySelector('.pg.on[data-pg="coin"]'))paintAna();if(!(document.activeElement&&/^ch[ETD]$/.test(document.activeElement.id)))paintCh()},2000);
+setInterval(checkAlerts,2000);setInterval(paintLog,5000);setInterval(()=>{if(document.visibilityState!=="visible")return;if(CLOUD)refreshModel();else runOpt()},CLOUD?3e5:9e5);setInterval(()=>{if(CLOUD&&document.visibilityState==="visible")refreshModel()},3e5);setInterval(()=>{checkPos();paintPos();paintRec();paintHome();if(document.querySelector('.pg.on[data-pg="rec"]'))paintSqz();if(document.querySelector('.pg.on[data-pg="coin"]'))paintAna();if(!(document.activeElement&&/^ch[ETD]$/.test(document.activeElement.id)))paintCh()},2000);
 $("eq").oninput=paint;addEventListener("resize",paint);setInterval(paint,1000);buildNav();showPg((typeof location!=="undefined"&&location.hash||"").slice(1)||"home");load();
 </script>
 </body>
