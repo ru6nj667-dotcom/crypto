@@ -623,7 +623,8 @@ function connect(){
  ws.onmessage=m=>{let d;try{d=JSON.parse(m.data).data}catch(e){return}if(!d||!d.k)return;const c=d.s.replace(/USDT$/,""),q=d.k,k=D[c];if(!k||!k.length)return;lastMsg=Date.now();
   const b={t:q.t,o:+q.o,h:+q.h,l:+q.l,c:+q.c,v:+q.v,ct:q.T};
   if(k[k.length-1].t===b.t)k[k.length-1]=b;else if(b.t>k[k.length-1].t){k.push(b);if(k.length>2100)k.splice(0,k.length-2000)}
-  if(q.x){A[c]=analyze(k.filter(x=>x.t<=b.t),c);JC.clear();clearTimeout(window._lt);window._lt=setTimeout(()=>{learn();paintLearn()},3000)}
+  if(q.x){A[c]=analyze(k.filter(x=>x.t<=b.t),c);JC.clear();
+   if(c==="BTC"){const t0=b.t;setTimeout(async()=>{if(btcDayDir(Date.now())===0&&P.htf){await loadBtcDay()}COINS.forEach(x=>{if(x!=="BTC"&&A[x]&&A[x].kk&&A[x].lastT>=t0)A[x]=analyze(A[x].kk,x)});JC.clear()},1500)} /* 其他幣比 BTC 先收盤時，BTC 方向還沒更新會被誤擋，BTC 收盤後重算一次 */clearTimeout(window._lt);window._lt=setTimeout(()=>{learn();paintLearn()},3000)}
   if(!raf&&document.visibilityState==="visible")raf=setTimeout(()=>{raf=0;paint()},600);};
 }
 setInterval(()=>{if(document.visibilityState==="visible"&&!loading&&COINS.length&&Date.now()-lastMsg>20000){setConn("太久沒收到價格，重新連線…","bad");connect();lastMsg=Date.now()-15000}},5000); // 看門狗

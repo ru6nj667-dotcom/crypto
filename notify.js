@@ -59,6 +59,7 @@ const HELP = `指令：
 /report 累積經驗報告
 /news 新聞與市場情緒
 /alive 確認雲端有在跑、為什麼沒訊號
+/hourly 4　每 4 小時傳一次結論（1、2、4、8 或 off）
 /goal 300 600 30　挑戰賽：本金 300 → 600，30 天（/goal 看進度，/goal off 結束）
 提醒：雲端大約每 1 分鐘更新一次價格，K線收盤後 1～2 分鐘內就會通知。停損一定要在交易所掛好。
 （網頁上「我的持倉」存在手機裡，雲端看不到；要雲端幫你盯持倉，請用 /long 或 /short 加進來。）`;
@@ -151,11 +152,14 @@ if (!ok) {
 
 // 每分鐘只抓每個幣最新幾根K線；有新K線收盤才重新分析那個幣
 G(`globalThis.cloudUpd=async function(){let closed=0;const now=Date.now();
- await pool(COINS.slice(),8,async c=>{try{const k=D[c];if(!k||!k.length)return;const last=k[k.length-1],gap=Math.ceil((now-last.t)/TFMS[tf])+2,lim=Math.min(300,Math.max(3,gap));
+ const one=async c=>{try{const k=D[c];if(!k||!k.length)return;const last=k[k.length-1],gap=Math.ceil((now-last.t)/TFMS[tf])+2,lim=Math.min(300,Math.max(3,gap));
   const r=await getJ(REST+"/api/v3/klines?symbol="+c+"USDT&interval="+tf+"&limit="+lim,2);if(!r||!r.length)return;
   const before=k.filter(x=>!x.open).length,m=new Map(k.map(x=>[x.t,x]));r.forEach(x=>m.set(x[0],{t:x[0],o:+x[1],h:+x[2],l:+x[3],c:+x[4],v:+x[5],ct:x[6]}));
   let arr=[...m.values()].sort((a,b)=>a.t-b.t);arr.forEach(x=>{x.open=x.ct>now});if(arr.length>2100)arr=arr.slice(-2000);D[c]=arr;
-  const after=arr.filter(x=>!x.open).length;if(after!==before||!A[c]){A[c]=analyze(arr.filter(x=>!x.open),c);closed++}}catch(e){}});
+  const after=arr.filter(x=>!x.open).length;if(after!==before||!A[c]){A[c]=analyze(arr.filter(x=>!x.open),c);closed++}}catch(e){}};
+ if(P.htf&&btcDayDir(now)===0)await loadBtcDay(); // 換日後補抓 BTC 日線，不然大方向會變「不明」而擋掉所有訊號
+ await one("BTC"); // 先更新 BTC，其他幣判斷「跟 BTC 同方向」才不會因為 BTC 還沒更新而被誤擋
+ await pool(COINS.filter(c=>c!=="BTC"),8,one);
  lastMsg=Date.now();JC.clear();if(closed)learn();return closed}`);
 
 // ---- 挑戰賽 ----
@@ -199,6 +203,9 @@ async function handleCmds(cmds) {
       if (/^off$/i.test(a[1] || "")) { st.goal = null; out.push("🏁 挑戰賽已結束。"); }
       else if (a.length >= 4) { const e = +a[1], tg = +a[2], d = +a[3]; if (e > 0 && tg > e && d > 0) { st.goal = { start: Date.now(), startEq: e, eq: e, target: tg, days: d }; st.equity = e; out.push(goalStatus()); } else out.push("格式：/goal 本金 目標 天數，例 /goal 300 600 30（目標要比本金大）"); }
       else out.push(goalStatus());
+    } else if (c0 === "/hourly") {
+      const v = (a[1] || "").toLowerCase(); st.hourly = v === "off" ? 0 : [1, 2, 4, 8].includes(+v) ? +v : 1;
+      out.push(st.hourly ? `🕐 每 ${st.hourly} 小時傳一次「這小時能不能做」的結論。` : "🕐 已關掉每小時結論（✅ 訊號照常通知）。");
     } else if (c0 === "/news" || t === "新聞") {
       later.push("news");
     } else if (c0 === "/report" || t === "報告") {
@@ -297,6 +304,25 @@ async function heartbeat(force) {
     +(S&&S.n?"累積經驗："+S.n+" 筆有結果，勝率 "+S.all.win.toFixed(0)+"%、平均 "+f2(S.all.avg):"累積經驗：還在收集中")})()`);
   st.hb = slot; await send(txt);
 }
+// ---- 每小時結論：這小時能不能做、做什麼 ----
+st.hourly ??= 1;
+async function hourly(sentSig) {
+  if (!st.hourly) return; const d = new Date(); if (d.getMinutes() < 2 || d.getMinutes() > 20) return;
+  const slot = Math.floor(Date.now() / 36e5); if (slot % st.hourly) return; if (st.hrSlot === slot) return; st.hrSlot = slot;
+  const txt = G(`(()=>{const dz=x=>x>0?"向上":x<0?"向下":"不明",b1=A.BTC&&A.BTC.tdir?A.BTC.tdir.get(A.BTC.lastT)||0:0,bd=btcDayDir(Date.now()),h=new Date().getHours();
+    const ok=COINS.filter(c=>{const v=verdict(c);return v&&v.ok}).map(rankOf).sort((a,b)=>b.qual-a.qual);
+    let t="🕐 "+h+":00 這小時的結論\\n";
+    if(ok.length)return t+"✅ 可以做："+ok.slice(0,3).map(x=>(x.d>0?"做多 ":"做空 ")+x.c).join("、")+"\\n詳細下單方式看上面的 ✅ 通知，或打開網頁的挑戰賽。";
+    t+="⏸ 這小時不要做。\\n原因：";
+    if(!ACTIVE)t+="AI 現在的規則沒通過驗證（或實戰表現太差暫停中）。";
+    else if((P.btc||P.htf)&&b1&&bd&&b1!==bd)t+="BTC 短線"+dz(b1)+"、大方向"+dz(bd)+"，兩個相反，規則規定這時候多空都不做。";
+    else t+="沒有幣剛好在這根K線收盤時符合條件（BTC 短線"+dz(b1)+"、大方向"+dz(bd)+"）。";
+    const w=COINS.map(rankOf).filter(x=>x.d!==0&&x.qual>0&&x.stage>=1).sort((a,b)=>b.stage-a.stage||a.dist-b.dist).slice(0,2);
+    if(w.length)t+="\\n\\n最接近的（還不能買）：\\n"+w.map(x=>"・"+x.c+" "+(x.d>0?"做多":"做空")+"方向，"+x.q.txt).join("\\n");
+    return t})()`);
+  await send(txt);
+}
+
 // ---- 第一輪 ----
 await handleCmds(firstCmds);
 await newsRiskScan();
@@ -328,6 +354,7 @@ while (Date.now() - T0 < RUN_MS) {
     if (await newsUpdate()) await newsRiskScan();
     if (Date.now() - lastJ > 10 * 6e4) { journalUpdate(); lastJ = Date.now(); }
     sentN += await alerts();
+    await hourly();
     await heartbeat(cmds.some(t => /^\/alive|^\/ping/i.test(t)));
   } catch (e) { console.log("這一輪出錯，下一輪再試：", e.message); }
   save();
