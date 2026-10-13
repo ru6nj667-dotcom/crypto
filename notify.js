@@ -260,7 +260,7 @@ function journalUpdate() {
    return{added,done,total:J.length,closed:J.filter(r=>r.R!==undefined).length}})())`));
   st.journal = globalThis.__J;
   if (jr.added || jr.done || !st.jLogged) { console.log(`累積經驗：新增 ${jr.added} 筆訊號、${jr.done} 筆有了結果；總共 ${jr.total} 筆（已有結果 ${jr.closed} 筆）`); st.jLogged = 1; }
-  if (!st.lastJW || Date.now() - st.lastJW > 6 * 36e5) { writeData("journal.json", st.journal); st.lastJW = Date.now(); console.log("已寫入 data/journal.json（會存進 GitHub 專案永久保留）"); }
+  if (!st.lastJW || Date.now() - st.lastJW > 40 * 6e4) { writeData("journal.json", st.journal); st.lastJW = Date.now(); console.log("已寫入 data/journal.json（會存進 GitHub 專案永久保留）"); }
 }
 
 // ---- 自動提醒 ----
@@ -315,6 +315,7 @@ async function hourly(sentSig) {
     if(ok.length)return t+"✅ 可以做："+ok.slice(0,3).map(x=>(x.d>0?"做多 ":"做空 ")+x.c).join("、")+"\\n詳細下單方式看上面的 ✅ 通知，或打開網頁的挑戰賽。";
     t+="⏸ 這小時不要做。\\n原因：";
     if(!ACTIVE)t+="AI 現在的規則沒通過驗證（或實戰表現太差暫停中）。";
+    else if(!liveGuard().ok){const g=liveGuard();t+="最近 "+g.n+" 筆實際訊號只賺 "+g.win+" 筆、平均 "+f2(g.avg)+"，市場跟規則不合，保護機制先暫停，等表現回來再給訊號。"}
     else if((P.btc||P.htf)&&b1&&bd&&b1!==bd)t+="BTC 短線"+dz(b1)+"、大方向"+dz(bd)+"，兩個相反，規則規定這時候多空都不做。";
     else t+="沒有幣剛好在這根K線收盤時符合條件（BTC 短線"+dz(b1)+"、大方向"+dz(bd)+"）。";
     const w=COINS.map(rankOf).filter(x=>x.d!==0&&x.qual>0&&x.stage>=1).sort((a,b)=>b.stage-a.stage||a.dist-b.dist).slice(0,2);

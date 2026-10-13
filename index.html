@@ -205,7 +205,7 @@ async function loadModel(){try{const r=await fetch("data/model.json?"+Date.now()
  if(!m||m.tf!==tf||!m.g||Date.now()-m.time>3*36e5)return null;return m}catch(e){return null}}
 function applyModel(m){CLOUD=m;PC=m.pc||{};if(m.grid&&m.grid.list&&m.grid.tf===tf&&Date.now()-m.grid.time<3*36e5)GRIDR=m.grid;Object.assign(P,m.g,m.ext||{htf:false,exit:"fixed",crowd:false});P.g=m.g;P.ext=m.ext;ACTIVE=!!m.active;LIVEST=m.live||null;
  OPT={...m.opt,pass:!!m.active,paused:!!m.paused,fromCloud:true,time:m.time};JC.clear()}
-async function refreshModel(){if(tf!==(CLOUD&&CLOUD.tf))return;const m=await loadModel();if(m&&(!CLOUD||m.time>CLOUD.time)){applyModel(m);COINS.forEach(c=>{if(A[c]&&A[c].kk)A[c]=analyze(A[c].kk,c)});JC.clear();learn();paintAll()}}
+async function refreshModel(){loadJournal();if(tf!==(CLOUD&&CLOUD.tf))return;const m=await loadModel();if(m&&(!CLOUD||m.time>CLOUD.time)){applyModel(m);COINS.forEach(c=>{if(A[c]&&A[c].kk)A[c]=analyze(A[c].kk,c)});JC.clear();learn();paintAll()}}
 function exportModel(){const O=OPT||{};const slim=r=>r?{g:r.g,v:r.v,train:r.train,test:r.test}:null;
  return{time:Date.now(),tf,g:P.g,ext:P.ext||{htf:false,exit:"fixed",crowd:false},active:ACTIVE,paused:!!O.paused,live:LIVEST,liveSince:(liveGet().cur||{}).since||null,
   opt:{best:slim(O.best),chosen:slim(O.chosen),vres:(O.vres||[]).map(slim),top:(O.top||[]).map(slim),tested:O.tested,coins:O.coins,cutT:O.cutT,ens:O.ens||null},pc:PC,
@@ -457,7 +457,16 @@ function paintNews(){const el=$("news");if(!el)return;if(!NEWS){$("nsum").textCo
  h+="<p class='mut' style='margin-top:8px'>最新標題：</p>"+(NEWS.items||[]).slice(0,12).map(n=>`<div style="padding:4px 0;border-bottom:1px solid var(--bd)"><span class="mut">${hm(n.time)}・${n.src}</span>${(n.coins||[]).length?` <b>${n.coins.join(" ")}</b>`:""}${n.risk?` <span style="color:var(--dn)">⚠️${n.risk}</span>`:""}<br><a href="${n.link}" target="_blank" rel="noopener" style="color:var(--tx)">${n.title.replace(/</g,"&lt;")}</a></div>`).join("");
  el.innerHTML=h}
 /* ===== 下單前檢查表：全部通過才說「可以進場」 ===== */
-function verdict(c){const a=A[c],q=judge(c);if(!a||!a.e50)return null;const bt=a.bt||{n:0,avg:0,win:0},O=OPT&&(OPT.chosen||OPT.best);
+
+/* ===== 實戰保護：最近真的發生的訊號連續虧 → 先停；同一根K線太多幣同方向 → 只取最好的 2 個 ===== */
+function liveGuard(){const J=JOURNAL||[],now=Date.now(),rec=J.filter(r=>r.tf===tf&&r.R!==undefined&&r.out!=="無效"&&r.out!=="無資料"&&r.t>now-3*864e5).sort((a,b)=>b.t-a.t).slice(0,20);
+ if(rec.length<10)return{ok:true,n:rec.length};const avg=rec.reduce((x,r)=>x+r.R,0)/rec.length,win=rec.filter(r=>r.R>0).length;return{ok:avg>-.3,n:rec.length,avg,win}}
+let CLU={t:0,m:null};
+function clusterOK(c,q){if(!q||!q.sig)return{ok:true};const now=Math.floor(Date.now()/2000);if(CLU.t!==now||!CLU.m){const m={};
+  COINS.forEach(x=>{const j=judge(x);if(j.sig&&!j.weak){const a=A[x],k=j.sig.s.s+"|"+(a&&a.lastT);(m[k]=m[k]||[]).push({c:x,q:a&&a.bt&&a.bt.n>=5?a.bt.avg:-9})}});
+  Object.values(m).forEach(L=>L.sort((a,b)=>b.q-a.q));CLU={t:now,m}}
+ const a=A[c],L=CLU.m[q.sig.s.s+"|"+(a&&a.lastT)]||[],i=L.findIndex(x=>x.c===c);return{ok:i<0||i<2,n:L.length}}
+function verdict(c){let LG,CL;const a=A[c],q=judge(c);if(!a||!a.e50)return null;const bt=a.bt||{n:0,avg:0,win:0},O=OPT&&(OPT.chosen||OPT.best);
  const items=[
   ["資料即時、沒有在更新中",!stale(c)&&!busy()&&Date.now()-lastMsg<30000,stale(c)?"資料過舊":busy()?"更新／學習中":""],
   ["AI 策略通過驗證（真錢門檻）",ACTIVE,OPT&&OPT.paused?"實戰表現太差，暫停中":O?`沒看過的資料 ${O.test.n} 筆、平均 ${f2(O.test.avg)}、可信度 ${tstat(O.test).toFixed(1)}（要 ≥1.5）`:"學習中"],
@@ -465,6 +474,8 @@ function verdict(c){const a=A[c],q=judge(c);if(!a||!a.e50)return null;const bt=a
   ["沒有負面新聞、沒有要下架",!newsRisk(c),newsRisk(c)||"無"],
   ["不是 AI 學到的「常做錯」情況",!q.sig||!(learnBlock(q.sig.s)||journalBlock(c,q.sig.s)),q.sig?(learnBlock(q.sig.s)||journalBlock(c,q.sig.s)||"無"):"出現訊號時才檢查"],
   ["K線收盤確認，出現進場訊號",!!q.sig,q.sig?"已確認":q.txt],
+  ["最近實戰沒有連續虧（保護機制）",(LG=liveGuard()).ok,LG.n<10?`最近 3 天有結果的 ${LG.n} 筆，還不夠判斷`:`最近 ${LG.n} 筆：賺 ${LG.win} 筆、平均 ${f2(LG.avg)}${LG.ok?"":"，最近一直被掃，先暫停"}`],
+  ["不是一堆幣同時同方向（只取最好的 2 個）",(CL=clusterOK(c,q)).ok,CL.n>2?`這根K線有 ${CL.n} 個幣同時出現同方向訊號，它們會一起漲跌，等於只下一注，所以只做排最前面的 2 個`:"沒有"],
   ["價格還在進場區間、沒有追太遠",!!q.sig,q.sig?`現價下風險報酬 ${q.sig.rr.toFixed(1)}`:/不追|不足/.test(q.txt)?q.txt:"還沒有訊號"]];
  if(P.htf){const d=btcDayDir(Date.now()),need=q.sig?q.sig.s.s:dirOf(c);if(need!==0)items.splice(1,0,["BTC 日線大方向一致（200 日均線）",d===0||d===need,d>0?"BTC 在 200 日均線之上（只做多）":d<0?"BTC 在 200 日均線之下（只做空）":"抓不到日線"])}
  if(P.crowd){const r=fundAt(c,Date.now()),need=q.sig?q.sig.s.s:dirOf(c),bad=r!=null&&(need>0?r>.0003:need<0?r<-.0003:false);items.splice(1,0,["合約沒有過度擁擠（資金費率）",!bad,r==null?"沒有合約資料":"資金費率 "+(r*100).toFixed(3)+"%"])}
@@ -849,7 +860,7 @@ function paintAna(){const el=$("ana");if(!el)return;const c=cur,a=A[c];
  const pt=planTxt(c);if(pt)h+=`<div style="margin:6px 0">${pt}</div>`;
  h+=`<p class="mut">這個幣用目前規則過去 ${bt.n} 次訊號，勝率 ${bt.win.toFixed(0)}%、平均 ${f2(bt.avg)}${bt.n<5?"（次數太少，參考就好）":""}。</p>`;
  if(mine.length)h+=`<div style="border:1px solid var(--bd);border-radius:10px;padding:8px"><b>💼 你的持倉</b>`+mine.map(p=>{const e=evalPos(p);return`<div>${p.s>0?"做多":"做空"} ${p.lev}x・買 ${fp(p.entry)}${e.pnl!==undefined?`・<b style="color:${e.pnl>=0?"var(--up)":"var(--dn)"}">${e.pnl>=0?"+":""}${e.pnl.toFixed(2)} U</b>`:""}<br>👉 ${e.msg}</div>`}).join("")+`</div>`;
- else{const ls=a.ln-.5*T,ss=a.hn+.5*T;
+ else{const R20=a.B&&a.B.R[20],n1=a.n-1,pp=planOf(c),ls=pp&&pp.s>0?pp.stop:Math.max((R20?R20.ll[n1]:a.ln)-.5*T,a.c-3*T),ss=pp&&pp.s<0?pp.stop:Math.min((R20?R20.hh[n1]:a.hn)+.5*T,a.c+3*T); // 停損用最近 20 根高低點，但不超過 3 倍 ATR；有進場計畫就用計畫的停損
   h+=`<div style="border:1px solid var(--bd);border-radius:10px;padding:8px"><b>如果你已經買了</b><br>
   <span>・做多：${d>0?`方向一致，可以抱著。停損至少掛在 <b style="color:var(--dn)">${fp(ls)}</b>（最近低點下方）。`:d<0?`<b style="color:var(--dn)">方向已經轉空</b>，建議掛好停損 ${fp(ls)}，反彈可以考慮減倉或出場，不要加碼。`:`方向不明，停損掛在 ${fp(ls)}，不要加碼。`}</span><br>
   <span>・做空：${d<0?`方向一致，可以抱著。停損至少掛在 <b style="color:var(--dn)">${fp(ss)}</b>（最近高點上方）。`:d>0?`<b style="color:var(--dn)">方向已經轉多</b>，建議掛好停損 ${fp(ss)}，回落可以考慮減倉或出場，不要加碼。`:`方向不明，停損掛在 ${fp(ss)}，不要加碼。`}</span><br>
