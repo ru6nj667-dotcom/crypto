@@ -7,7 +7,7 @@
 <style>
 :root{--bg:#f6f7f9;--card:#fff;--tx:#14171c;--mut:#667085;--bd:#e3e6ea;--up:#0f9d6b;--dn:#d6443a;--ac:#2b5cff}
 @media (prefers-color-scheme:dark){:root{--bg:#0e1116;--card:#171b22;--tx:#e8ebf0;--mut:#8b94a3;--bd:#262c36;--up:#2ccf94;--dn:#ff6b60;--ac:#7c9bff}}
-*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--tx);font:15px/1.5 -apple-system,"PingFang TC","Noto Sans TC","Microsoft JhengHei",sans-serif;padding:env(safe-area-inset-top) 0 env(safe-area-inset-bottom)}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--tx);font:15px/1.5 -apple-system,"PingFang TC","Noto Sans TC","Microsoft JhengHei",sans-serif;padding:0 0 env(safe-area-inset-bottom)}
 main{max-width:820px;margin:0 auto;padding:12px}h1{font-size:18px;margin:4px 0 8px}
 .card{background:var(--card);border:1px solid var(--bd);border-radius:14px;padding:12px;margin-bottom:10px}
 .tabs{display:flex;gap:6px;overflow-x:auto;margin-bottom:8px;padding-bottom:2px}
@@ -21,16 +21,57 @@ canvas{width:100%;height:300px;display:block}
 .grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px}.k{background:var(--bg);border-radius:10px;padding:7px 10px}.k small{display:block;color:var(--mut);font-size:12px}
 table{width:100%;border-collapse:collapse;font-size:14px}td,th{padding:7px 3px;border-bottom:1px solid var(--bd);text-align:left}th{color:var(--mut);font-weight:500;font-size:12px}
 tr.sel{background:var(--bg)}summary{font-weight:600;cursor:pointer;padding:2px 0}details[open] summary{margin-bottom:8px}#conn{padding:8px 12px;border-radius:10px;font-size:13px;margin-bottom:8px;background:var(--bd);color:var(--mut)}#conn.ok{background:color-mix(in srgb,var(--up) 15%,transparent);color:var(--up)}#conn.bad{background:color-mix(in srgb,var(--dn) 15%,transparent);color:var(--dn)}
+.top{position:sticky;top:0;z-index:20;background:var(--bg);display:flex;align-items:center;gap:10px;padding:calc(env(safe-area-inset-top) + 8px) 12px 8px;border-bottom:1px solid var(--bd)}
+.top .ham{font-size:20px;padding:2px 12px;border-radius:10px}.top b{font-size:17px}
+.pg{display:none}.pg.on{display:block}
+#drawer{position:fixed;inset:0;z-index:50;display:none}#drawer.on{display:block}#drawer .bg{position:absolute;inset:0;background:rgba(0,0,0,.45)}
+#drawer nav{position:absolute;left:0;top:0;bottom:0;width:78%;max-width:300px;background:var(--card);padding:calc(env(safe-area-inset-top) + 14px) 10px 20px;overflow:auto;box-shadow:4px 0 20px rgba(0,0,0,.3)}
+#drawer nav a,.menuGrid a{display:flex;gap:10px;align-items:center;padding:12px;border-radius:10px;color:var(--tx);text-decoration:none;font-size:16px;cursor:pointer}
+#drawer nav a.on{background:var(--bg);font-weight:700}
+.hero{border-radius:18px;padding:18px;background:linear-gradient(135deg,#2b5cff,#7c3aed);color:#fff;margin-bottom:10px}
+.fakeq{margin-top:12px;background:rgba(255,255,255,.18);border-radius:12px;padding:10px 12px;font-size:15px;cursor:pointer}
+.tiles{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px}
+.tile{background:var(--card);border:1px solid var(--bd);border-radius:14px;padding:12px;cursor:pointer}.tile small{display:block;color:var(--mut);font-size:12px;margin-bottom:2px}.tile b{font-size:16px}
+.menuGrid{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:10px}.menuGrid a{background:var(--card);border:1px solid var(--bd);font-size:15px}
+.big{font-size:20px;font-weight:800;margin:2px 0 6px}
 input{width:90px;font:inherit;padding:4px 6px;border:1px solid var(--bd);border-radius:8px;background:var(--bg);color:var(--tx)}
 </style>
 </head>
-<body><main>
-<h1>幣圈即時監控（幣安公開行情）</h1>
+<body>
+<div class="top"><button class="ham" onclick="menu(true)" aria-label="選單">☰</button><b id="ptitle">🏠 首頁</b><span id="topdot" class="mut" style="margin-left:auto"></span></div>
+<div id="drawer"><div class="bg" onclick="menu(false)"></div><nav id="nav"></nav></div>
+<main>
 <div id="conn">連線中…</div>
 <div id="busy" style="display:none;background:color-mix(in srgb,#e0a800 18%,transparent);color:#e0a800;border-radius:10px;padding:8px 12px;margin-bottom:8px;font-size:14px"></div>
+<section class="pg" data-pg="home">
+<div class="hero"><div style="font-size:13px;opacity:.85">幣安合約・AI 雲端 24 小時盯盤</div><div style="font-size:26px;font-weight:800;margin:2px 0 6px">幣推測</div><div style="font-size:14px;opacity:.9">只在 ✅ 出現時下單・每筆都掛停損</div>
+<div class="fakeq" onclick="go('coin');setTimeout(()=>$('q').focus(),80)">🔍 搜尋幣種，問我要不要買…</div></div>
+<div class="tiles" id="tiles"></div>
+<div class="menuGrid" id="menuGrid"></div>
 <details class="card" id="briefbox" open><summary>📋 打開統整：你不在時發生了什麼＋現在最好的選擇</summary><div id="brief"><p class="mut">正在抓最新行情，抓完馬上用 AI 學好的規則統整給你（約 5～20 秒）…</p></div></details>
+</section>
+<section class="pg" data-pg="rec">
 <div class="card"><b>⭐ AI 推薦（進場程度＋歷史勝率最好的前 3 名）</b><div class="mut">只有標「<b style="color:var(--up)">現在可做多／做空</b>」的才是可以下單的，點進去會看到「✅ 可以進場」。其他都只是觀察。<b style="color:var(--dn)">「⏳ 還不能買」代表價格到了附近，但要等這根K線收盤確認轉強，提前買常常會繼續跌到停損。</b></div><div id="rec"></div></div>
+<div class="card"><b>📋 全部幣（依方向分）</b><div class="tabs" id="sides"></div><div class="mut" id="sidehint"></div><table><thead><tr><th>幣種（點一下看K線）</th><th>現價</th><th>狀態</th></tr></thead><tbody id="list"></tbody></table></div>
+</section>
+<section class="pg" data-pg="coin">
+<div class="card"><input id="q" placeholder="🔍 搜尋幣種：BTC、比特幣、eth、狗狗幣…" autocomplete="off" oninput="searchCoin()" style="width:100%;margin-bottom:6px;font-size:16px;padding:8px 10px"><div id="qres"></div></div>
+<div class="card" id="anabox"><div id="ana"><p class="mut">搜尋或點一個幣，我幫你分析要不要買。</p></div></div>
+<div class="tabs" id="coins"></div>
+<div class="tabs" id="tfs"></div>
+<div class="card" id="chartcard">
+  <div class="row"><div><b id="sym"></b><div class="price" id="price">--</div><div class="mut" id="age"></div></div><span class="tag" id="st">載入中</span></div>
+  <canvas id="cv"></canvas>
+  <div id="verdict" style="margin:8px 0"></div>
+  <div id="sig" class="mut"></div>
+  <div class="grid" id="lv"></div>
+  <p class="mut" id="bt"></p>
+</div>
+</section>
+<section class="pg" data-pg="ch">
 <details class="card" id="chbox" open><summary id="chsum">🏁 挑戰賽</summary><div id="ch"></div></details>
+</section>
+<section class="pg" data-pg="pos">
 <details class="card" id="posbox" open><summary id="possum">💼 我的持倉</summary>
 <div class="mut">買了之後填這裡，我會一直盯著，有狀況馬上響＋通知（記得先按下面的🔔開啟提醒）。</div>
 <div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-top:6px">
@@ -42,27 +83,24 @@ input{width:90px;font:inherit;padding:4px 6px;border:1px solid var(--bd);border-
 <span class="mut">停損（可空白）</span><input id="pst" type="number" step="any" placeholder="自動">
 <button class="on" onclick="addPos()">＋ 加入監控</button></div>
 <div id="poslist"></div></details>
-<div class="tabs" id="coins"></div>
-<div class="row" style="margin-bottom:8px"><button id="alertBtn" onclick="enableAlert()">🔔 開啟提醒（聲音＋通知）</button><button id="wakeBtn" onclick="toggleWake()">💡 保持螢幕亮著</button><span class="mut" id="alertHint"></span></div>
-<div class="tabs" id="tfs"></div><div class="row" style="margin-bottom:8px"><span class="mut">掃描幣數（成交量前幾名）</span><select id="scan" onchange="SCAN=+this.value;lss('scan',SCAN);load()" style="font:inherit;padding:4px;border-radius:8px;background:var(--bg);color:var(--tx);border:1px solid var(--bd)"><option>40</option><option>80</option><option>150</option><option>250</option></select></div>
-<div class="card" id="chartcard">
-  <div class="row"><div><b id="sym"></b><div class="price" id="price">--</div><div class="mut" id="age"></div></div><span class="tag" id="st">載入中</span></div>
-  <canvas id="cv"></canvas>
-  <div id="verdict" style="margin:8px 0"></div>
-  <div id="sig" class="mut"></div>
-  <div class="grid" id="lv"></div>
-  <p class="mut" id="bt"></p>
-</div>
-<div class="card"><span class="mut">本金</span> <input id="eq" type="number" value="1000"> <span class="mut">USDT · 單筆風險 1% · 槓桿上限 2 倍</span></div>
-<div class="card"><input id="q" placeholder="🔍 搜尋幣種：BTC、比特幣、eth、狗狗幣…" autocomplete="off" oninput="searchCoin()" style="width:100%;margin-bottom:6px;font-size:16px;padding:8px 10px"><div id="qres"></div><div class="tabs" id="sides"></div><div class="mut" id="sidehint"></div><table><thead><tr><th>幣種（點一下看K線）</th><th>現價</th><th>狀態</th></tr></thead><tbody id="list"></tbody></table></div>
+</section>
+<section class="pg" data-pg="ai">
 <details class="card"><summary id="optsum">🧠 AI 學習中…</summary><div id="opt"></div></details>
-<details class="card"><summary id="nsum">📰 新聞與市場情緒</summary><div id="news"></div></details>
-<details class="card"><summary id="gsum">🕸 網格建議（盤整幣）</summary><div id="grid"></div></details>
 <details class="card"><summary id="jsum">📚 累積經驗</summary><div id="journal"></div></details>
 <details class="card"><summary id="learnsum">🔍 錯誤來源分析</summary><div id="learn"></div></details>
 <details class="card"><summary id="logsum">📒 24 小時內的訊號</summary><div id="log"></div></details>
 <details class="card"><summary>📘 什麼時候叫你進場、停損停利怎麼算</summary><ol class="mut" id="rules" style="margin:6px 0 0;padding-left:20px"></ol></details>
+</section>
+<section class="pg" data-pg="market">
+<details class="card"><summary id="nsum">📰 新聞與市場情緒</summary><div id="news"></div></details>
+<details class="card"><summary id="gsum">🕸 網格建議（盤整幣）</summary><div id="grid"></div></details>
+</section>
+<section class="pg" data-pg="set">
+<div class="card"><span class="mut">本金</span> <input id="eq" type="number" value="1000"> <span class="mut">USDT · 單筆風險 1% · 槓桿上限 2 倍</span></div>
+<div class="card"><div class="row" style="margin-bottom:8px"><button id="alertBtn" onclick="enableAlert()">🔔 開啟提醒（聲音＋通知）</button><button id="wakeBtn" onclick="toggleWake()">💡 保持螢幕亮著</button><span class="mut" id="alertHint"></span></div></div>
+<div class="card"><div class="row" style="margin-bottom:8px"><span class="mut">掃描幣數（成交量前幾名）</span><select id="scan" onchange="SCAN=+this.value;lss('scan',SCAN);load()" style="font:inherit;padding:4px;border-radius:8px;background:var(--bg);color:var(--tx);border:1px solid var(--bd)"><option>40</option><option>80</option><option>150</option><option>250</option></select></div></div>
 <p class="mut">此頁只讀幣安公開行情，不會下單。回測與學習都有可能失準，訊號不是保證；每筆都要掛停損。</p>
+</section>
 </main>
 <script>
 let COINS=[];const TFS=["3m","15m","1h","4h"];let side=1;
@@ -528,7 +566,7 @@ function setSide(s){const b=$("ps");b.dataset.s=s;b.textContent=s>0?"▲ 做多"
 function dirOf(c){const a=A[c];if(!a||!a.e50)return 0;const s=a.sg[a.sg.length-1];
  if(s&&s.t===a.n-1)return s.s;if(a.pend)return a.pend.s;
  const e5=a.e50[a.n-1],e2=a.e200[a.n-1];return a.c>e5&&e5>e2?1:a.c<e5&&e5<e2?-1:0}
-function sel(c){cur=c;paint();$("chartcard").scrollIntoView({behavior:"smooth",block:"start"})}
+function sel(c){cur=c;go("coin");paint();paintAna()}
 const JC=new Map();setInterval(()=>JC.clear(),900);
 function judge(coin){const h=JC.get(coin);if(h)return h;const r=judge0(coin);JC.set(coin,r);return r}
 function stale(c){const k=D[c];if(!k||!k.length)return true;return Date.now()-k[k.length-1].ct>2*TFMS[tf]+6e4} // 最後一根K線太舊＝停止交易或下架
@@ -759,11 +797,53 @@ function paintCh(){const el=$("ch");if(!el)return;const ch=chGet(),pct=x=>(x*100
  h+=`<div class="row" style="margin-top:8px"><span class="mut">Telegram 打 /goal ${ch.eq.toFixed(0)} ${ch.target} ${Math.ceil(left)}，✅ 通知也會照挑戰算好下多少。</span><button onclick="chEnd()">結束挑戰</button></div>`;
  el.innerHTML=h}
 
+/* ===== 封面＋選單＋查幣分析 ===== */
+const PAGES=[["home","🏠","首頁"],["rec","⭐","現在推薦"],["coin","🔍","查幣・問要不要買"],["ch","🏁","挑戰賽"],["pos","💼","我的持倉"],["ai","🧠","AI 學習與成績"],["market","📰","新聞・網格"],["set","⚙️","設定・提醒"]];
+function menu(on){if(!document.body)return;$("drawer").classList.toggle("on",!!on)}
+function go(p){if(typeof location!=="undefined"&&location.hash!=="#"+p)location.hash=p;else showPg(p)}
+function showPg(p){if(!document.body)return;if(!PAGES.some(x=>x[0]===p))p="home";document.querySelectorAll(".pg").forEach(e=>e.classList.toggle("on",e.dataset.pg===p));
+ const g=PAGES.find(x=>x[0]===p);$("ptitle").textContent=g[1]+" "+g[2];document.querySelectorAll("#nav a").forEach(a=>a.classList.toggle("on",a.dataset.pg===p));menu(false);try{scrollTo(0,0)}catch(e){}
+ if(p==="coin")setTimeout(()=>{paint();paintAna()},40);if(p==="home")paintHome();if(p==="ch")paintCh();if(p==="pos")paintPos();if(p==="rec")paintRec()}
+addEventListener("hashchange",()=>showPg(location.hash.slice(1)));
+function buildNav(){if(!document.body)return;const h=PAGES.map(x=>`<a data-pg="${x[0]}" onclick="go('${x[0]}')"><span style="font-size:20px">${x[1]}</span>${x[2]}</a>`).join("");$("nav").innerHTML=`<div class="mut" style="padding:4px 12px 10px">幣推測・選單</div>`+h;
+ $("menuGrid").innerHTML=PAGES.slice(1).map(x=>`<a onclick="go('${x[0]}')"><span style="font-size:20px">${x[1]}</span>${x[2]}</a>`).join("")}
+function paintHome(){const el=$("tiles");if(!el)return;if(loading||!COINS.length){el.innerHTML=`<div class="tile" style="grid-column:1/3"><small>狀態</small><b>正在抓最新行情…</b></div>`;return}
+ const ok=COINS.filter(c=>{const v=verdict(c);return v&&v.ok}),dz=x=>x>0?"向上 ↑":x<0?"向下 ↓":"不明",b1=A.BTC&&A.BTC.tdir?A.BTC.tdir.get(A.BTC.lastT)||0:0,bd=btcDayDir(Date.now()),ch=chGet(),warn=POS.filter(p=>evalPos(p).lv!=="ok").length,O=OPT&&(OPT.ens||OPT.chosen||OPT.best);
+ const t=(pg,label,val,col)=>`<div class="tile" onclick="go('${pg}')"><small>${label}</small><b${col?` style="color:${col}"`:""}>${val}</b></div>`;
+ el.innerHTML=t("rec","現在能不能下單",ok.length?`✅ ${ok.length} 個可以做`:"⏸ 現在不要做",ok.length?"var(--up)":"")
+  +t("rec","BTC 短線／大方向",`${dz(b1)}／${dz(bd)}`,b1&&bd&&b1!==bd?"var(--dn)":"")
+  +t("ch","🏁 挑戰賽",ch?`${ch.eq.toFixed(0)} / ${ch.target} U`:"還沒開始")
+  +t("pos","💼 我的持倉",POS.length?`${POS.length} 筆${warn?`・⚠️ ${warn} 筆有狀況`:"・正常"}`:"沒有持倉",warn?"var(--dn)":"")
+  +t("ai","🧠 AI 規則",ACTIVE?`通過・平均 ${O?f2(O.test.avg):"?"}`:"暫停中",ACTIVE?"":"var(--dn)")
+  +t("ai","學習來源",CLOUD?`☁️ 雲端 ${hm(CLOUD.time)} 更新`:"本機學習");
+ const td=$("topdot");if(td)td.textContent=Date.now()-lastMsg<30000?"● 即時":"○ 連線中";}
+function paintAna(){const el=$("ana");if(!el)return;const c=cur,a=A[c];
+ if(!c||!a||!a.e50){el.innerHTML="<p class='mut'>搜尋或點一個幣，我幫你分析要不要買。</p>";return}
+ if(busy()){el.innerHTML="<p class='mut'>正在更新行情，稍等幾秒…</p>";return}
+ const v=verdict(c),q=judge(c),d=dirOf(c),bt=a.bt||{n:0,win:0,avg:0},mine=POS.filter(x=>x.c===c),T=a.atr||0,nm=d>0?"做多":"做空";
+ let h=`<div class="row"><b style="font-size:18px">${c} 分析</b><span class="mut">${tf}・現價 ${fp(D[c][D[c].length-1].c)}</span></div>`;
+ if(v&&v.ok)h+=`<div class="big" style="color:var(--up)">✅ 現在可以${q.sig.s.s>0?"做多":"做空"}</div>`;
+ else if(v&&v.wait)h+=`<div class="big" style="color:#d99a00">⏳ 還不能買：等條件</div>`;
+ else h+=`<div class="big" style="color:var(--dn)">❌ 現在不要買</div>`;
+ const why=v?(v.hard.length?v.hard:v.fail).slice(0,2):[];
+ if(why.length&&!(v&&v.ok))h+=`<div class="mut">原因：${why.map(x=>x[0]+(x[2]?"（"+x[2]+"）":"")).join("；")}</div>`;
+ h+=`<p style="margin:8px 0 4px"><b>方向：</b>${d>0?"多頭（只考慮做多）":d<0?"空頭（只考慮做空）":"方向不明（均線糾纏，不做）"}${PC[c]?`・🧩 這個幣用「${FAMZH[PC[c].fam]}」`:""}</p>`;
+ if(q.why)h+=`<p class="mut" style="margin:0 0 6px">${q.why}</p>`;
+ const pt=planTxt(c);if(pt)h+=`<div style="margin:6px 0">${pt}</div>`;
+ h+=`<p class="mut">這個幣用目前規則過去 ${bt.n} 次訊號，勝率 ${bt.win.toFixed(0)}%、平均 ${f2(bt.avg)}${bt.n<5?"（次數太少，參考就好）":""}。</p>`;
+ if(mine.length)h+=`<div style="border:1px solid var(--bd);border-radius:10px;padding:8px"><b>💼 你的持倉</b>`+mine.map(p=>{const e=evalPos(p);return`<div>${p.s>0?"做多":"做空"} ${p.lev}x・買 ${fp(p.entry)}${e.pnl!==undefined?`・<b style="color:${e.pnl>=0?"var(--up)":"var(--dn)"}">${e.pnl>=0?"+":""}${e.pnl.toFixed(2)} U</b>`:""}<br>👉 ${e.msg}</div>`}).join("")+`</div>`;
+ else{const ls=a.ln-.5*T,ss=a.hn+.5*T;
+  h+=`<div style="border:1px solid var(--bd);border-radius:10px;padding:8px"><b>如果你已經買了</b><br>
+  <span>・做多：${d>0?`方向一致，可以抱著。停損至少掛在 <b style="color:var(--dn)">${fp(ls)}</b>（最近低點下方）。`:d<0?`<b style="color:var(--dn)">方向已經轉空</b>，建議掛好停損 ${fp(ls)}，反彈可以考慮減倉或出場，不要加碼。`:`方向不明，停損掛在 ${fp(ls)}，不要加碼。`}</span><br>
+  <span>・做空：${d<0?`方向一致，可以抱著。停損至少掛在 <b style="color:var(--dn)">${fp(ss)}</b>（最近高點上方）。`:d>0?`<b style="color:var(--dn)">方向已經轉多</b>，建議掛好停損 ${fp(ss)}，回落可以考慮減倉或出場，不要加碼。`:`方向不明，停損掛在 ${fp(ss)}，不要加碼。`}</span><br>
+  <button style="margin-top:6px" onclick="go('pos');setTimeout(()=>{$('pc').value='${c}';$('pe').focus()},80)">把這筆加進「我的持倉」讓我幫你盯</button></div>`}
+ el.innerHTML=h}
+
 analyze=(f=>(k,c)=>withC(c,()=>f(k,c)))(analyze);judge0=(f=>c=>withC(c,()=>f(c)))(judge0);planOf=(f=>c=>withC(c,()=>f(c)))(planOf);
 planTxt=(f=>(c,s)=>withC(c,()=>f(c,s)))(planTxt);rankOf=(f=>c=>withC(c,()=>f(c)))(rankOf);verdict=(f=>c=>withC(c,()=>f(c)))(verdict);
 evalPos=(f=>p=>withC(p&&p.c,()=>f(p)))(evalPos);paint=(f=>()=>withC(cur,f))(paint);
-setInterval(checkAlerts,2000);setInterval(paintLog,5000);setInterval(()=>{if(document.visibilityState!=="visible")return;if(CLOUD)refreshModel();else runOpt()},CLOUD?3e5:9e5);setInterval(()=>{if(CLOUD&&document.visibilityState==="visible")refreshModel()},3e5);setInterval(()=>{checkPos();paintPos();paintRec();if(!(document.activeElement&&/^ch[ETD]$/.test(document.activeElement.id)))paintCh()},2000);
-$("eq").oninput=paint;addEventListener("resize",paint);setInterval(paint,1000);load();
+setInterval(checkAlerts,2000);setInterval(paintLog,5000);setInterval(()=>{if(document.visibilityState!=="visible")return;if(CLOUD)refreshModel();else runOpt()},CLOUD?3e5:9e5);setInterval(()=>{if(CLOUD&&document.visibilityState==="visible")refreshModel()},3e5);setInterval(()=>{checkPos();paintPos();paintRec();paintHome();if(document.querySelector('.pg.on[data-pg="coin"]'))paintAna();if(!(document.activeElement&&/^ch[ETD]$/.test(document.activeElement.id)))paintCh()},2000);
+$("eq").oninput=paint;addEventListener("resize",paint);setInterval(paint,1000);buildNav();showPg((typeof location!=="undefined"&&location.hash||"").slice(1)||"home");load();
 </script>
 </body>
 </html>
