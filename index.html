@@ -202,10 +202,13 @@ function pdesc(g){const tail=`${g.btc?"、只做跟 BTC 同方向":""}；停損 
 /* ===== 雲端大腦：GitHub 雲端 24 小時一直在學習，把結果存成 data/model.json。網頁打開時直接用雲端學好的結果，不用重新學 ===== */
 let CLOUD=null;
 async function loadModel(){try{const r=await fetch("data/model.json?"+Date.now(),{cache:"no-store"});if(!r.ok)return null;const m=await r.json();
- if(!m||m.tf!==tf||!m.g||Date.now()-m.time>3*36e5)return null;return m}catch(e){return null}}
+ if(!m||!m.g||Date.now()-m.time>3*36e5)return null;
+ if(m.tf!==tf){if(tfManual||!TFS.includes(m.tf))return null;tf=m.tf} // 雲端自動換到比較好的週期時，網頁跟著換（你自己點過週期就不自動換）
+ return m}catch(e){return null}}
+let tfManual=false;
 function applyModel(m){CLOUD=m;PC=m.pc||{};if(m.grid&&m.grid.list&&m.grid.tf===tf&&Date.now()-m.grid.time<3*36e5)GRIDR=m.grid;Object.assign(P,m.g,m.ext||{htf:false,exit:"fixed",crowd:false,noext:false});P.g=m.g;P.ext=m.ext;ACTIVE=!!m.active;LIVEST=m.live||null;
  OPT={...m.opt,pass:!!m.active,paused:!!m.paused,fromCloud:true,time:m.time};JC.clear()}
-async function refreshModel(){loadJournal();if(tf!==(CLOUD&&CLOUD.tf))return;const m=await loadModel();if(m&&(!CLOUD||m.time>CLOUD.time)){applyModel(m);COINS.forEach(c=>{if(A[c]&&A[c].kk)A[c]=analyze(A[c].kk,c)});JC.clear();learn();paintAll()}}
+async function refreshModel(){loadJournal();if(!tfManual){try{const r=await fetch("data/model.json?"+Date.now(),{cache:"no-store"});const m=r.ok?await r.json():null;if(m&&m.tf&&m.tf!==tf&&TFS.includes(m.tf)&&m.g&&Date.now()-m.time<3*36e5){load();return}}catch(e){}}if(tf!==(CLOUD&&CLOUD.tf))return;const m=await loadModel();if(m&&(!CLOUD||m.time>CLOUD.time)){applyModel(m);COINS.forEach(c=>{if(A[c]&&A[c].kk)A[c]=analyze(A[c].kk,c)});JC.clear();learn();paintAll()}}
 function exportModel(){const O=OPT||{};const slim=r=>r?{g:r.g,v:r.v,train:r.train,val:r.val,test:r.test}:null;
  return{time:Date.now(),tf,g:P.g,ext:P.ext||{htf:false,exit:"fixed",crowd:false,noext:false},active:ACTIVE,paused:!!O.paused,live:LIVEST,liveSince:(liveGet().cur||{}).since||null,
   opt:{best:slim(O.best),chosen:slim(O.chosen),vres:(O.vres||[]).map(slim),top:(O.top||[]).map(slim),tested:O.tested,coins:O.coins,cutT:O.cutT,cut2:O.cut2,ens:O.ens||null},pc:PC,
@@ -278,7 +281,7 @@ function paintOpt(){const el=$("opt");if(!el)return;const O=OPT,hist=(lsg("opt_"
  $("optsum").innerHTML=O.paused?`🧠 AI 學習：⏸ 實戰表現太差，暫停進場訊號（${LIVEST.n} 筆，平均 ${f2(LIVEST.avg)}）`:O.pass?`🧠 AI 學習：✅ 找到有效規則（新資料平均 ${f2((O.chosen||b).test.avg)}）`:`🧠 AI 學習：⛔ 這個週期沒有規則通過驗證，暫停進場訊號`;
  let h=(O.fromCloud?`<p style="color:var(--up)">☁️ 這是雲端 24 小時一直在學習的結果（${hm(O.time)} 更新，每 5 分鐘自動同步），打開網頁不用重新學。</p>`:"")+`<p class="mut">用 ${O.coins} 個幣、各約 2000 根 ${tf} K線，試了 ${O.tested} 種規則組合，涵蓋四大類策略：突破回踩、順勢回檔、趨勢中的超跌反彈、盤整蓄勢突破；每類再試不同參數、要不要跟 BTC 同方向、停損停利幾倍。資料分三段：<b>${hm(O.cutT)} 以前</b>用來挑規則，${O.cut2?`<b>${hm(O.cutT)}～${hm(O.cut2)}</b> 用來挑升級，<b>${hm(O.cut2)} 之後</b>完全不碰，最後才拿來考試`:"之後的資料完全不給它看，最後才拿來檢查"}，考試也賺才會用。${O.fromCloud?'雲端每 5～15 分鐘就用最新K線重新學一次，你關掉網頁、手機鎖屏它也照樣在學。':'每 15 分鐘會用最新K線自動重新學一次，換成當下最強的那組。'}</p>`;
  if(b){const C=O.chosen||b;h+=`<p><b>目前最好的規則：</b>${pdesc(b.g)}。<br><b>升級：</b>${extDesc(P.ext)}。<br>${O.ens?`<b>🧩 融會貫通：</b>${O.ens.n} 個幣改用比較適合它的策略（${O.ens.fams.map(f=>FAMZH[f]).join("、")}），其他幣用上面的規則。沒看過的新資料上：每個幣用自己的方法 ${O.ens.test.n} 筆、平均 ${f2(O.ens.test.avg)}、總共 ${(O.ens.test.n*O.ens.test.avg).toFixed(0)}R；全部用同一個方法 ${O.ens.base.n} 筆、總共 ${(O.ens.base.n*O.ens.base.avg).toFixed(0)}R。<br>`:`<b>🧩 融會貫通：</b>有試過讓每個幣用不同策略，但在沒看過的資料上沒有比較好，所以全部用同一個規則。<br>`}<span class="mut">（同一根K線同方向的多個幣算 1 注，因為它們會一起漲跌）</span><br>挑選期：${C.train.n} 注，勝率 ${C.train.win.toFixed(0)}%，平均 ${f2(C.train.avg)}<br>${C.val?`驗證期（挑升級用）：${C.val.n} 注，勝率 ${C.val.win.toFixed(0)}%，平均 ${f2(C.val.avg)}<br>`:""}最後考試（完全沒碰過）：${C.test.n} 注，勝率 ${C.test.win.toFixed(0)}%，平均 ${f2(C.test.avg)}、可信度 ${tstat(C.test).toFixed(1)}</p>
- <p>${O.paused?"<b style='color:var(--dn)'>⏸ 回測雖然通過，但規則上線後真實發生的訊號（見下方實戰成績）10 筆以上平均虧超過 0.5R，代表最近行情跟過去不一樣。先暫停給進場訊號，等實戰表現回來或 AI 換到新規則。</b>":O.pass?"<b style='color:var(--up)'>新資料也賺錢 → 已套用這個規則產生進場訊號。</b>":"<b style='color:var(--dn)'>新資料上是虧的或筆數不夠 → 代表它只是剛好配合過去，不能信。這個週期暫停給你進場訊號，可以切換別的週期看看。</b>"}</p>`;
+ <p>${O.paused?"<b style='color:var(--dn)'>⏸ 回測雖然通過，但規則上線後真實發生的訊號（見下方實戰成績）10 筆以上平均虧超過 0.5R，代表最近行情跟過去不一樣。先暫停給進場訊號，等實戰表現回來或 AI 換到新規則。</b>":O.pass?"<b style='color:var(--up)'>新資料也賺錢 → 已套用這個規則產生進場訊號。</b>":"<b style='color:var(--dn)'>新資料上是虧的或筆數不夠 → 代表它只是剛好配合過去，不能信。這個週期暫停給你進場訊號。雲端會自動試 15m、1h、4h 三種週期，哪個考試通過就自動換過去，網頁也會跟著換。</b>"}</p>`;
   if(O.vres&&O.vres.length)h+=`<p class="mut">四個升級的比較（都用同一套規則，看最後考試的資料）：</p><table><tr><th>升級組合</th><th>新資料</th><th>勝率</th><th>平均</th><th>挑選期總R</th></tr>`+O.vres.map(r=>`<tr${same(r.v)?' style="font-weight:700"':''}><td class="mut">${extDesc(r.v)}</td><td>${r.test.n}</td><td>${r.test.win.toFixed(0)}%</td><td>${f2(r.test.avg)}${stratOK(r)?"":" ✗"}</td><td>${(r.train.n*r.train.avg).toFixed(0)}</td></tr>`).join("")+"</table><p class='mut'>粗體＝目前採用。✗＝沒通過真錢門檻。採用條件：沒看過的資料上總獲利（筆數×平均）比原本高、兩段合計也比原本高，而且挑選期不能比原本差超過 20%。</p>";}
  h+="<p class='mut'>挑選期排名前 5（依「穩定分數」排：平均要賺、波動要小、筆數要夠，而且相鄰參數也要好）：</p><table><tr><th>規則</th><th>筆數</th><th>勝率</th><th>平均</th></tr>"+O.top.map(r=>`<tr><td class="mut">${pdesc(r.g)}</td><td>${r.train.n}</td><td>${r.train.win.toFixed(0)}%</td><td>${f2(r.train.avg)}</td></tr>`).join("")+"</table>";
  {const LV=O.fromCloud?{cur:CLOUD&&CLOUD.liveSince?{since:CLOUD.liveSince}:null,hist:[],ban:{}}:liveGet();h+=`<p style="margin-top:10px"><b>📈 實戰成績（規則上線後真的發生的訊號，扣手續費）</b></p>`;
@@ -390,7 +393,7 @@ function buildBrief(){const el=$("brief");if(!el)return;briefDone=true;const now
     miss.slice(0,12).map(m=>`<tr><td>${hm(m.g.time+TFMS[tf])}</td><td>${m.c}${m.ok?"":"<span class='mut'>（歷史不佳）</span>"}</td><td>${m.g.s>0?"做多":"做空"}</td><td style="color:${m.o.st==="停利"?"var(--up)":m.o.st==="停損"?"var(--dn)":"var(--mut)"}">${m.o.st}${m.o.st==="進行中"?` ${f2(m.o.R)}`:""}</td></tr>`).join("")+"</table>";
    const late=miss.filter(m=>m.o.st==="進行中"&&m.o.R>.5);if(late.length)h+=`<p class="mut" style="margin-left:8px">已經跑掉的（${[...new Set(late.map(m=>m.c))].join("、")}）不要追，等下一次機會。</p>`}}
  // 3. AI 學到的
- h+=`<p><b>③ ${OPT&&OPT.fromCloud?'AI 目前學到的結果（雲端持續學習）':'AI 剛剛重新學習的結果'}</b></p><p style="margin-left:8px">${OPT&&OPT.best?(OPT.pass?`✅ 用「${pdesc(P)}」＋升級「${extDesc(P.ext)}」，沒看過的新資料上平均 ${f2((OPT.chosen||OPT.best).test.avg)}（${(OPT.chosen||OPT.best).test.n} 筆，勝率 ${(OPT.chosen||OPT.best).test.win.toFixed(0)}%）。${OPT.ens?`另外有 ${OPT.ens.n} 個幣改用更適合它的策略，整體在新資料上平均 ${f2(OPT.ens.test.avg)}（${OPT.ens.test.n} 筆）。`:""}`:`⛔ ${tf} 目前沒有規則通過驗證，這個週期先不做，可以換週期看看。`):"學習中…"}</p>`;
+ h+=`<p><b>③ ${OPT&&OPT.fromCloud?'AI 目前學到的結果（雲端持續學習）':'AI 剛剛重新學習的結果'}</b></p><p style="margin-left:8px">${OPT&&OPT.best?(OPT.pass?`✅ 用「${pdesc(P)}」＋升級「${extDesc(P.ext)}」，沒看過的新資料上平均 ${f2((OPT.chosen||OPT.best).test.avg)}（${(OPT.chosen||OPT.best).test.n} 筆，勝率 ${(OPT.chosen||OPT.best).test.win.toFixed(0)}%）。${OPT.ens?`另外有 ${OPT.ens.n} 個幣改用更適合它的策略，整體在新資料上平均 ${f2(OPT.ens.test.avg)}（${OPT.ens.test.n} 筆）。`:""}`:`⛔ ${tf} 目前沒有規則通過驗證，這個週期先不做，雲端會自動試其他週期。`):"學習中…"}</p>`;
  // 4. 現在最好的
  const r=ACTIVE?COINS.map(rankOf).filter(x=>x.stage>=3&&x.qual>0).sort((a,b)=>b.stage-a.stage||b.qual-a.qual||a.dist-b.dist).slice(0,3):[];
  h+=`<p><b>④ 現在最好的選擇</b></p>`+(r.length?r.map((x,i)=>`<div style="margin-left:8px" onclick="sel('${x.c}')">${i+1}. <b>${x.c}</b> ${x.stage===4?`<b style="color:${x.d>0?"var(--up)":"var(--dn)"}">現在可${x.d>0?"做多":"做空"}</b>`:`<span style="color:var(--mut)">⏳ 還不能買（等K線收盤確認${x.d>0?"做多":"做空"}）</span>`}・歷史勝率 ${x.bt.win.toFixed(0)}%・平均 ${f2(x.bt.avg)}（${x.bt.n} 筆）<span class="mut"> 看K線 ›</span></div>`).join(""):"<p class='mut' style='margin-left:8px'>現在沒有好機會。沒有好機會時不進場，也是賺錢的一部分。</p>");
@@ -536,7 +539,7 @@ function paintRec(){const el=$("rec");if(!el)return;const sc=$("scan");if(sc&&+s
  if(!OPT){el.innerHTML="<span class='mut'>AI 學習中，學完才推薦…</span>";return}
  const all=COINS.map(rankOf),dirN=all.filter(x=>x.d!==0).length,nearN=all.filter(x=>x.stage>=3).length,goodN=all.filter(x=>x.qual>0).length,nowN=all.filter(x=>x.stage===4).length;
  const funnel=`<div class="mut" style="margin-top:6px">${FUT?"只掃有幣安 USDT 永續合約的幣（合約清單來源："+FUTSRC+"）。":"⚠️ 這次抓不到合約清單，下面可能混有沒有合約的幣，請下單前確認。"}掃描 ${COINS.length} 個幣 → 有明確方向 ${dirN} 個 → 接近或可以進場 ${nearN} 個（現在就能進 ${nowN} 個）→ 這個幣過去用目前策略是賺的 ${goodN} 個。兩個條件都要過才推薦。</div>`;
- if(!ACTIVE){el.innerHTML=`<span class='mut'>AI 在 ${tf} 找不到能通過驗證的策略，所以不推薦。可以切換其他週期。</span>`+funnel;return}
+ if(!ACTIVE){el.innerHTML=`<span class='mut'>AI 在 ${tf} 找不到能通過驗證的策略，所以不推薦。雲端會自動試其他週期，有通過的就自動換過去。</span>`+funnel;return}
  const row=(x,i,watch)=>{const nm=x.d>0?"做多":"做空";return`<div class="row" style="padding:6px 0;border-bottom:1px solid var(--bd)" onclick="sel('${x.c}')"><div><b>${i+1}. ${x.c}</b> <span class="tag ${watch?"":x.d>0?"long":"short"}">${watch?"觀察中・"+nm+"方向":x.stage===4?"現在可"+nm:"⏳ 還不能買・等收盤確認"+nm}</span><div class="mut">${PC[x.c]?"🧩 "+FAMZH[PC[x.c].fam]+"・":""}歷史勝率 ${x.bt.win.toFixed(0)}%・平均 ${f2(x.bt.avg)}（${x.bt.n} 筆）・${x.q.txt}<br><span style="color:var(--tx)">${planTxt(x.c,true)}</span></div></div><span class="mut">看K線 ›</span></div>`};
  const r=all.filter(x=>x.stage>=3&&x.qual>0).sort((a,b)=>b.stage-a.stage||b.qual-a.qual||a.dist-b.dist).slice(0,3);
  if(r.length){el.innerHTML=r.map((x,i)=>row(x,i,false)).join("")+funnel;return}
@@ -693,7 +696,7 @@ function setConn(t,c){const e=$("conn");e.textContent=t;e.className=c}
 function paint(){
  const cands=COINS.filter(c=>{const q=judge(c);return q.sig&&!q.weak});
  $("coins").innerHTML="<b style='white-space:nowrap'>可進場候選：</b>"+(cands.length?cands.map(c=>{const q=judge(c);return`<button class="${q.sig.s.s>0?"lg":"sh"}" onclick="sel('${c}')">${c} ${q.sig.s.s>0?"做多":"做空"}</button>`}).join(""):"<span class='mut'>目前沒有（全部等待中）</span>");
- $("tfs").innerHTML=TFS.map(t=>`<button class="${t===tf?"on":""}" onclick="if(tf!=='${t}'){tf='${t}';load()}">${t}</button>`).join("");
+ $("tfs").innerHTML=TFS.map(t=>`<button class="${t===tf?"on":""}" onclick="if(tf!=='${t}'){tfManual=true;tf='${t}';load()}">${t}</button>`).join("");
  const k=D[cur];if(!k)return;
  const j=judge(cur),last=k[k.length-1];
  $("sym").textContent=cur+"/USDT · "+tf;$("price").textContent=fp(last.c);
@@ -848,6 +851,36 @@ function paintSqz(){const el=$("sqz");if(!el||!el.isConnected)return;if(busy()||
  el.innerHTML=`<div class="mut">波動壓縮到最近 120 根裡最窄的時候，之後常常會有一段大行情——但<b>往上還是往下要等突破才知道</b>。這裡是讓你先盯著，<b>不是下單訊號</b>。${useSq?"AI 現在有在用「蓄勢突破」策略，真的突破而且條件都過，就會出現 ✅。":"AI 測過「蓄勢突破」策略，目前在沒看過的資料上沒有比現在的規則好，所以突破時不會給 ✅，這裡只當參考，不要自己追。"}</div>`+
  (L.length?L.map(x=>`<div class="row" style="padding:7px 0;border-bottom:1px solid var(--bd)" onclick="sel('${x.c}')"><div><b>${x.c}</b> <span class="mut">壓縮程度：最近 120 根最窄的 ${Math.max(1,Math.round(x.r*100))}%${x.d?`・大趨勢偏${x.d>0?"多":"空"}`:"・趨勢不明"}</span><br>
   <span>收盤站上 <b style="color:var(--up)">${fp(x.hh)}</b> → 往上噴；跌破 <b style="color:var(--dn)">${fp(x.ll)}</b> → 往下（現價 ${fp(x.px)}，離上 ${((x.hh/x.px-1)*100).toFixed(1)}%、離下 ${((1-x.ll/x.px)*100).toFixed(1)}%）</span></div><span class="mut">看K線 ›</span></div>`).join(""):"<p class='mut'>現在沒有明顯在蓄勢的幣。</p>")}
+/* ===== 🎲 進場前模擬：找過去「跟現在很像」的 1000 個時刻，24 種做法各模擬一次（約 2.4 萬次），挑最好的，再用比較新的那批驗證 ===== */
+let SIMPOOL=null,SIMC={};
+function simFeat(a,t,btd){const B=a.B,k=a.kk,c=k[t].c,T=B.atr[t]||c*.01,cl=x=>Math.max(-10,Math.min(10,x));
+ return[cl((B.e50[t]-B.e200[t])/T)/2,cl((c-B.e50[t])/T)/1.5,Math.max(-4,Math.min(4,B.z[t])),(B.rsi[t]-50)/10,(B.bwr?B.bwr[t]:.5)*4,cl((c-k[Math.max(0,t-24)].c)/T)/2,(btd||0)*2,Math.min(10,T/c*100)/2]}
+function simPool(){const key=(A.BTC&&A.BTC.lastT)+"|"+COINS.length+"|"+tf;if(SIMPOOL&&SIMPOOL.key===key)return SIMPOOL;
+ const bt=A.BTC&&A.BTC.B?A.BTC.B.tdir:new Map(),F=[],I=[];
+ COINS.forEach(c=>{const a=A[c];if(!a||!a.B||!a.kk||a.kk.length<300)return;const n=a.kk.length;for(let t=220;t<n-49;t++){if(Math.round(a.kk[t].t/TFMS[tf])%12)continue;F.push(simFeat(a,t,bt.get(a.kk[t].t)));I.push([c,t])}});
+ SIMPOOL={key,F,I};return SIMPOOL}
+function simAsk(c,want){const a=A[c];if(!a||!a.B||!a.kk||a.kk.length<300)return{err:"這個幣的資料還沒載入"};
+ const pool=simPool(),n=a.kk.length,bt=A.BTC&&A.BTC.B?A.BTC.B.tdir:new Map(),q=simFeat(a,n-1,bt.get(a.kk[n-1].t));
+ const d=pool.F.map((f,i)=>{let s=0;for(let j=0;j<8;j++){const x=f[j]-q[j];s+=x*x}return[s,i]}).sort((x,y)=>x[0]-y[0]);
+ const per={},pick=[];for(const [,i] of d){const [cc,t]=pool.I[i];if(cc===c&&t>n-60)continue;const tm=A[cc].kk[t].t;if((per[tm]||0)>=3)continue;per[tm]=(per[tm]||0)+1;pick.push([cc,t,tm]);if(pick.length>=1000)break} // 樣本固定每 12 根取一次（不能挑「附近最像的那根」，那樣會偷看到未來）；同一時間最多 3 個幣 // 同一時間最多 3 個，避免一堆幣一起漲跌被重複算
+ pick.sort((x,y)=>x[2]-y[2]);const cut=Math.floor(pick.length*.6);
+ const plans=[];for(const s of(want?[want]:[1,-1]))for(const m of[1,1.5,2])for(const rr of[1,1.5,2,3])plans.push({s,m,rr});
+ let sims=0;
+ const run=(L,p)=>{const R=[];L.forEach(([cc,t])=>{const k=A[cc].kk,B=A[cc].B;if(t+2>=k.length)return;const e=k[t+1].o,T=B.atr[t],stop=e-p.s*p.m*T,dist=Math.abs(e-stop);if(!(dist>0))return;
+   const r=simTrade(k,t+1,p.s,e,stop,p.rr,"fixed",T);sims++;if(!r||r.open)return;R.push(((r.ex-e)*p.s-e*.0016)/dist-.05)});return summ(R)}; // 多扣 0.05R：K線只看高低點，停利停損的模擬會稍微偏樂觀
+ const res=plans.map(p=>({p,old:run(pick.slice(0,cut),p),neu:run(pick.slice(cut),p)}));
+ res.forEach(r=>{r.se=r.neu.n>4?r.neu.sd/Math.sqrt(r.neu.n/4):9}); // 每 12 根取樣、結果看 48 根，前後會重疊，有效筆數大約只有 1/4
+ const best=res.slice().sort((x,y)=>y.old.avg-x.old.avg)[0],ok=best.neu.n>=100&&best.neu.avg>=.1&&best.neu.avg-2*best.se>0&&best.old.avg>0; // 驗證要明顯賺（扣掉誤差還是正的）才說可以
+ const p=best.p,T=a.atr,e=a.c,stop=e-p.s*p.m*T,tp=e+p.s*p.rr*p.m*T;
+ return{c,want,sims,np:plans.length,n:pick.length,from:pick[0]&&pick[0][2],to:pick[pick.length-1]&&pick[pick.length-1][2],best,ok,plan:{s:p.s,e,stop,tp},top:res.slice().sort((x,y)=>y.neu.avg-x.neu.avg).slice(0,3),time:Date.now()}}
+function simText(r,html){if(r.err)return r.err;const b=r.best,p=r.plan,nm=p.s>0?"做多":"做空",pct=x=>(x>=0?"+":"")+x.toFixed(2)+"R",B=x=>html?`<b>${x}</b>`:x,NL=html?"<br>":"\n";
+ const eq=+($("eq")&&$("eq").value)||0,stopPct=Math.abs(p.e-p.stop)/p.e,notional=eq*.01/stopPct,lev=Math.max(1,Math.ceil(notional/Math.max(eq,1)));
+ let t=`🎲 ${r.c} 進場前模擬：找了過去跟現在最像的 ${r.n} 個時刻，${r.want?(r.want>0?"只看做多":"只看做空")+"，":""}${r.np} 種停損停利做法各跑一次，共模擬 ${r.sims.toLocaleString()} 次。`+NL+NL;
+ if(r.ok)t+=`✅ ${B("最好的做法："+nm)}`+NL+`進場約 ${fp(p.e)}・停損 ${fp(p.stop)}（${b.p.m} 倍 ATR）・停利 ${fp(p.tp)}（${b.p.rr} 倍風險）`+NL+`比較舊的那批：勝率 ${b.old.win.toFixed(0)}%、平均 ${pct(b.old.avg)}`+NL+`拿比較新的那批驗證：勝率 ${b.neu.win.toFixed(0)}%、平均 ${pct(b.neu.avg)}（${b.neu.n} 次）`+NL+(eq?`照本金 ${eq} U、每筆最多虧 1%：倉位約 ${notional.toFixed(0)} U，開 ${lev} 倍、保證金約 ${(notional/lev).toFixed(1)} U`+NL:"")+`⚠️ 這是「過去像現在的時候」的統計，不是保證；停損一定要掛。`;
+ else t+=`❌ ${B("不建議進場")}：過去跟現在很像的時候，${r.want?(r.want>0?"做多":"做空"):"做多和做空"}各種停損停利做法，用比較新的那批驗證都沒有穩定賺。`+NL+`最好的一種（${nm}，停損 ${b.p.m} 倍 ATR、停利 ${b.p.rr} 倍）驗證平均 ${pct(b.neu.avg)}、勝率 ${b.neu.win.toFixed(0)}%——扣掉手續費後幾乎等於賭運氣。`;
+ return t}
+function simRun(c,w){const el=$("simres");if(el)el.innerHTML="<p class='mut'>🎲 模擬中，大約 1～5 秒…</p>";setTimeout(()=>{try{SIMC[c]=simAsk(c,w||0)}catch(e){SIMC[c]={err:"模擬失敗："+e.message,time:Date.now()}}paintAna()},30)}
+
 function paintAna(){const el=$("ana");if(!el)return;const c=cur,a=A[c];
  if(!c||!a||!a.e50){el.innerHTML="<p class='mut'>搜尋或點一個幣，我幫你分析要不要買。</p>";return}
  if(busy()){el.innerHTML="<p class='mut'>正在更新行情，稍等幾秒…</p>";return}
@@ -861,6 +894,10 @@ function paintAna(){const el=$("ana");if(!el)return;const c=cur,a=A[c];
  h+=`<p style="margin:8px 0 4px"><b>方向：</b>${d>0?"多頭（只考慮做多）":d<0?"空頭（只考慮做空）":"方向不明（均線糾纏，不做）"}${PC[c]?`・🧩 這個幣用「${FAMZH[PC[c].fam]}」`:""}</p>`;
  if(q.why)h+=`<p class="mut" style="margin:0 0 6px">${q.why}</p>`;
  const pt=planTxt(c);if(pt)h+=`<div style="margin:6px 0">${pt}</div>`;
+ {const sr=SIMC[c],fresh=sr&&Date.now()-sr.time<15*6e4;
+  h+=`<div style="border:2px solid var(--ac);border-radius:10px;padding:8px;margin:8px 0"><b>🎲 我想進場，幫我模擬</b><div class="mut">找過去跟現在最像的 1000 個時刻，各種做多／做空、停損停利各跑一次，選最好的。</div>
+  <div class="row" style="flex-wrap:wrap;gap:6px;margin-top:6px;justify-content:flex-start"><button class="on" onclick="simRun('${c}',0)">多空都比</button><button class="lg" onclick="simRun('${c}',1)">我想做多</button><button class="sh" onclick="simRun('${c}',-1)">我想做空</button></div>
+  <div id="simres" style="margin-top:6px">${fresh?simText(sr,true):""}</div></div>`}
  h+=`<p class="mut">這個幣用目前規則過去 ${bt.n} 次訊號，勝率 ${bt.win.toFixed(0)}%、平均 ${f2(bt.avg)}${bt.n<5?"（次數太少，參考就好）":""}。</p>`;
  if(mine.length)h+=`<div style="border:1px solid var(--bd);border-radius:10px;padding:8px"><b>💼 你的持倉</b>`+mine.map(p=>{const e=evalPos(p);return`<div>${p.s>0?"做多":"做空"} ${p.lev}x・買 ${fp(p.entry)}${e.pnl!==undefined?`・<b style="color:${e.pnl>=0?"var(--up)":"var(--dn)"}">${e.pnl>=0?"+":""}${e.pnl.toFixed(2)} U</b>`:""}<br>👉 ${e.msg}</div>`}).join("")+`</div>`;
  else{const R20=a.B&&a.B.R[20],n1=a.n-1,pp=planOf(c),ls=pp&&pp.s>0?pp.stop:Math.max((R20?R20.ll[n1]:a.ln)-.5*T,a.c-3*T),ss=pp&&pp.s<0?pp.stop:Math.min((R20?R20.hh[n1]:a.hn)+.5*T,a.c+3*T); // 停損用最近 20 根高低點，但不超過 3 倍 ATR；有進場計畫就用計畫的停損

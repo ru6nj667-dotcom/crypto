@@ -58,6 +58,7 @@ const HELP = `指令：
 /status 現在推薦（只有 ✅ 才是可以下單）
 /report 累積經驗報告
 /news 新聞與市場情緒
+/ask 幣 [多|空]　🎲 進場前模擬：例 /ask ETH 或 /ask SOL 空
 /alive 確認雲端有在跑、為什麼沒訊號
 /hourly 4　每 4 小時傳一次結論（1、2、4、8 或 off）
 /goal 300 600 30　挑戰賽：本金 300 → 600，30 天（/goal 看進度，/goal off 結束）
@@ -135,19 +136,43 @@ globalThis.__FUT = st.fut && Date.now() - st.fut.time < 7 * 864e5 ? st.fut.list 
 // ---- 執行網頁程式（index.html 裡的同一份邏輯） ----
 const html = fs.readFileSync("index.html", "utf8");
 let code = html.match(/<script>([\s\S]*)<\/script>/)[1];
-code = code.replace('let tf="1h"', `let tf=${JSON.stringify(TF)}`)
+const TFS_TRY = ["1h", "4h", "15m"];
+const startTF = TFS_TRY.includes(st.tfBest) ? st.tfBest : TF; // 上次找到比較好的週期就從那個開始
+code = code.replace('let tf="1h"', `let tf=${JSON.stringify(startTF)}`)
   .replace('"https://api1.binance.com"]', '"https://api1.binance.com","https://api.binance.us"]');
 vm.runInThisContext(code, { filename: "index.html" });
 const G = s => vm.runInThisContext(s);
 
-let waited = 0;
-while (waited < 240000) { await sleep(2000); waited += 2000; if (G("OPT!==null&&!optBusy&&!loading")) break; if (G("COINS.length===0&&!loading") && waited > 30000) break; }
-const ok = G("OPT!==null");
+async function waitReady() { let w = 0; while (w < 300000) { await sleep(2000); w += 2000; if (G("OPT!==null&&!optBusy&&!loading")) return true; if (G("COINS.length===0&&!loading") && w > 30000) return false; } return false; }
+await waitReady();
+let ok = G("OPT!==null");
 console.log(`行情：${G("COINS.length")} 個幣，資料來源 ${G("REST")}，AI 學習${ok ? "完成" : "未完成"}，規則${G("ACTIVE") ? "通過驗證" : "未通過驗證"}`);
 if (!ok) {
   const k = "fail|" + new Date().toISOString().slice(0, 13);
   if (!st.sent[k]) { st.sent[k] = Date.now(); await send(`⚠️ 雲端這次連不到行情或學習沒完成（${G('document.getElementById("conn").textContent')}），下次會再試。`); }
   save(); process.exit(0);
+}
+
+// ---- 自動換週期：這個週期考試沒過，就試 1h／4h／15m，挑考試最好的那個 ----
+const tfSum = () => JSON.parse(G(`JSON.stringify((()=>{const O=OPT&&(OPT.ens||OPT.chosen||OPT.best);return{tf,pass:!!ACTIVE,test:O&&O.test?O.test:null,t:O&&O.test?tstat(O.test):-9}})())`));
+async function switchTF(t) { G(`tf=${JSON.stringify(t)};load()`); await sleep(500); return await waitReady(); }
+st.tfRes ??= {};
+{
+  const cur = tfSum(); st.tfRes[cur.tf] = { ...cur, at: Date.now() };
+  const stale = !st.tfEvalT || Date.now() - st.tfEvalT > 3 * 36e5;
+  if (stale || (!cur.pass && Date.now() - (st.tfEvalT || 0) > 50 * 6e4)) {
+    for (const t of TFS_TRY) { if (t === cur.tf) continue; if (await switchTF(t)) { const r = tfSum(); st.tfRes[t] = { ...r, at: Date.now() }; } }
+    st.tfEvalT = Date.now();
+    const cands = TFS_TRY.map(t => st.tfRes[t]).filter(r => r && r.pass).sort((a, b) => b.t - a.t);
+    const pick = cands.length ? cands[0].tf : (st.tfRes[TF] ? TF : cur.tf);
+    const loaded = G("tf");
+    if (pick !== loaded) await switchTF(pick);
+    const prev = st.tfBest; st.tfBest = pick;
+    console.log("週期比較：" + TFS_TRY.map(t => { const r = st.tfRes[t]; return r ? `${t} ${r.pass ? "通過" : "沒過"}（最後考試 ${r.test ? r.test.n + " 注、平均 " + (r.test.avg >= 0 ? "+" : "") + r.test.avg.toFixed(2) + "R" : "無"}）` : `${t} 沒測到`; }).join("；") + ` → 用 ${pick}`);
+    if (prev && prev !== pick && cands.length) await send(`🔁 AI 自動換週期：${prev} 最近考試沒過，改用 ${pick}（最後考試 ${cands[0].test.n} 注、平均 ${(cands[0].test.avg >= 0 ? "+" : "") + cands[0].test.avg.toFixed(2)}R）。之後的訊號都是 ${pick} K線。`);
+    if (!cands.length && (!st.allFailT || Date.now() - st.allFailT > 12 * 36e5)) { st.allFailT = Date.now(); await send("⏸ 15m、1h、4h 三種週期最近的考試都沒過：現在市場跟所有學過的方法都不合，先不給訊號。雲端會一直重測，有通過的會自動換過去並通知你。"); }
+  }
+  ok = G("OPT!==null");
 }
 
 // 每分鐘只抓每個幣最新幾根K線；有新K線收盤才重新分析那個幣
@@ -203,6 +228,11 @@ async function handleCmds(cmds) {
       if (/^off$/i.test(a[1] || "")) { st.goal = null; out.push("🏁 挑戰賽已結束。"); }
       else if (a.length >= 4) { const e = +a[1], tg = +a[2], d = +a[3]; if (e > 0 && tg > e && d > 0) { st.goal = { start: Date.now(), startEq: e, eq: e, target: tg, days: d }; st.equity = e; out.push(goalStatus()); } else out.push("格式：/goal 本金 目標 天數，例 /goal 300 600 30（目標要比本金大）"); }
       else out.push(goalStatus());
+    } else if (c0 === "/ask" || c0 === "/sim") {
+      const c = (a[1] || "").toUpperCase().replace(/USDT$/, ""), w = /多|long|^l$/i.test(a[2] || "") ? 1 : /空|short|^s$/i.test(a[2] || "") ? -1 : 0;
+      if (!c) { out.push("格式：/ask 幣 [多|空]，例：/ask BTC 或 /ask ETH 多"); continue; }
+      if (!G(`!!A[${JSON.stringify(c)}]`)) { globalThis.__added = null; G(`addCoin(${JSON.stringify(c)},true).then(r=>globalThis.__added=r)`); for (let i = 0; i < 30 && globalThis.__added === null; i++) await sleep(500); }
+      out.push(G(`(()=>{try{return simText(simAsk(${JSON.stringify(c)},${w}),false)}catch(e){return "模擬失敗："+e.message}})()`));
     } else if (c0 === "/hourly") {
       const v = (a[1] || "").toLowerCase(); st.hourly = v === "off" ? 0 : [1, 2, 4, 8].includes(+v) ? +v : 1;
       out.push(st.hourly ? `🕐 每 ${st.hourly} 小時傳一次「這小時能不能做」的結論。` : "🕐 已關掉每小時結論（✅ 訊號照常通知）。");
@@ -210,7 +240,7 @@ async function handleCmds(cmds) {
       later.push("news");
     } else if (c0 === "/report" || t === "報告") {
       later.push("report");
-    } else if (c0 === "/start" || c0 === "/help") out.push("✅ 已連上你的監控機器人（週期 " + TF + "）。\n\n" + HELP);
+    } else if (c0 === "/start" || c0 === "/help") out.push("✅ 已連上你的監控機器人（現在用 " + G("tf") + " K線，雲端會自動挑考試最好的週期）。\n\n" + HELP);
   }
   for (const t of out) await send(t);
   if (later.includes("news")) await send(st.news ? `📰 市場情緒：${st.news.fng ? "恐懼貪婪 " + st.news.fng.value + "（" + st.news.fng.zh + "）" : "?"}\n` + (Object.keys(st.news.risk || {}).length ? "⚠️ 有負面新聞的幣：" + Object.entries(st.news.risk).map(([c, r]) => c + " " + r.kw.split("（")[0]).join("、") + "\n" : "") + "\n最新標題：\n" + st.news.items.slice(0, 6).map(n => "• " + n.title).join("\n") : "📰 還沒抓到新聞，下一輪再試。");
@@ -282,7 +312,7 @@ async function alerts() {
   }
   // AI 換規則或判定失效時通知
   const sig = G(`JSON.stringify({g:P.g,a:ACTIVE})`);
-  if (st.lastRule !== sig) { if (st.lastRule) await send(G(`ACTIVE?"🧠 AI 換了新策略："+pdesc(P):"🧠 AI：${TF} 目前沒有規則通過驗證（或實戰失效），先暫停進場訊號。"`)); st.lastRule = sig; }
+  if (st.lastRule !== sig) { if (st.lastRule) await send(G(`ACTIVE?"🧠 AI 換了新策略："+pdesc(P):"🧠 AI："+tf+" 目前沒有規則通過驗證（或實戰失效），先暫停進場訊號。"`)); st.lastRule = sig; }
   const cut = Date.now() - 3 * 864e5;
   for (const k in st.sent) if (st.sent[k] < cut) delete st.sent[k];
   return n;
