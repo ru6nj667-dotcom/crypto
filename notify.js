@@ -61,6 +61,7 @@ const HELP = `指令：
 /ask 幣 [多|空]　🎲 進場前模擬：例 /ask ETH 或 /ask SOL 空
 /alive 確認雲端有在跑、為什麼沒訊號
 /hourly 4　每 4 小時傳一次結論（1、2、4、8 或 off）
+/paper　🤖 看 AI 自己摸索的成績（各策略虛擬 1000 U 排行）；/paper off 關掉開平倉通知
 /goal 300 600 30　挑戰賽：本金 300 → 600，30 天（/goal 看進度，/goal off 結束）
 提醒：雲端大約每 1 分鐘更新一次價格，K線收盤後 1～2 分鐘內就會通知。停損一定要在交易所掛好。
 （網頁上「我的持倉」存在手機裡，雲端看不到；要雲端幫你盯持倉，請用 /long 或 /short 加進來。）`;
@@ -233,6 +234,10 @@ async function handleCmds(cmds) {
       if (!c) { out.push("格式：/ask 幣 [多|空]，例：/ask BTC 或 /ask ETH 多"); continue; }
       if (!G(`!!A[${JSON.stringify(c)}]`)) { globalThis.__added = null; G(`addCoin(${JSON.stringify(c)},true).then(r=>globalThis.__added=r)`); for (let i = 0; i < 30 && globalThis.__added === null; i++) await sleep(500); }
       out.push(G(`(()=>{try{return simText(simAsk(${JSON.stringify(c)},${w}),false)}catch(e){return "模擬失敗："+e.message}})()`));
+    } else if (c0 === "/paper" || t === "練習") {
+      if (/^off$/i.test(a[1] || "")) { st.paperMsgs = false; out.push("🤖 之後練習帳戶開倉平倉不傳通知（每天早晚還是會報告），/paper on 打開。"); }
+      else if (/^on$/i.test(a[1] || "")) { st.paperMsgs = true; out.push("🤖 練習帳戶每次開倉平倉都會通知你。"); }
+      else out.push(paperSummary());
     } else if (c0 === "/hourly") {
       const v = (a[1] || "").toLowerCase(); st.hourly = v === "off" ? 0 : [1, 2, 4, 8].includes(+v) ? +v : 1;
       out.push(st.hourly ? `🕐 每 ${st.hourly} 小時傳一次「這小時能不能做」的結論。` : "🕐 已關掉每小時結論（✅ 訊號照常通知）。");
@@ -332,7 +337,7 @@ async function heartbeat(force) {
     +((P.btc||P.htf)&&b1&&bd&&b1!==bd?"⚠️ 短線跟大方向相反：規則規定這時候多空都不做，所以訊號會很少——這是在保護你，不是壞掉。\\n":"")
     +"\\n過去 12 小時出現訊號：${n12} 個（只有 ✅ 會通知你）\\n"
     +(S&&S.n?"累積經驗："+S.n+" 筆有結果，勝率 "+S.all.win.toFixed(0)+"%、平均 "+f2(S.all.avg):"累積經驗：還在收集中")})()`);
-  st.hb = slot; await send(txt);
+  st.hb = slot; await send(txt); await send(paperSummary());
 }
 // ---- 每小時結論：這小時能不能做、做什麼 ----
 st.hourly ??= 1;
@@ -352,6 +357,84 @@ async function hourly(sentSig) {
     if(w.length)t+="\\n\\n最接近的（還不能買）：\\n"+w.map(x=>"・"+x.c+" "+(x.d>0?"做多":"做空")+"方向，"+x.q.txt).join("\\n");
     return t})()`);
   await send(txt);
+}
+
+// ---- 🤖 AI 自己摸索：同時跑好幾種策略，各用一個虛擬 1000 U 帳戶，用真實即時價格買賣；總帳戶跟著實戰成績最好的那種做（不碰你的幣安帳戶）----
+const PAPER_FEE = 0.0008; // 每邊：手續費 0.05% ＋ 滑價 0.03%
+const BOOKS = {
+  main: "🤖 總帳戶（跟著目前實戰最好的策略做）",
+  rule: "✅ AI 規則訊號",
+  sim: "🎲 相似行情模擬",
+  mom: "🚀 動能突破（創 50 根新高放量追多／新低追空）",
+  rev: "🔄 極端反轉（偏離平均 3 個標準差就反著做）",
+  btc: "₿ BTC 跟趨勢（只做 BTC，順著 1h 大方向）",
+  rand: "🎰 隨機亂買（對照組：拿來比，看其他方法是不是比亂買好）",
+};
+st.books ??= {};
+if (st.paper && !st.books.main) { st.books.main = st.paper; } // 舊的練習帳戶接到總帳戶
+for (const k of Object.keys(BOOKS)) st.books[k] ??= { start: Date.now(), eq0: 1000, eq: 1000, pos: [], log: [], scanT: 0, peak: 1000 };
+function paperPx(c) { return G(`(()=>{const k=D[${JSON.stringify(c)}];return k&&k.length?k[k.length-1].c:null})()`); }
+function bookStat(b) { const L = b.log.filter(x => isFinite(x.R)), n = L.length, avg = n ? L.reduce((a, x) => a + x.R, 0) / n : 0; return { n, avg, win: n ? L.filter(x => x.pnl > 0).length / n : 0, score: n >= 10 ? avg * Math.sqrt(n) : -9 }; }
+function bestBook() { let best = null; for (const k of Object.keys(BOOKS)) { if (k === "main" || k === "rand") continue; const s = bookStat(st.books[k]); if (s.n >= 10 && s.avg > 0.1 && (!best || s.score > best.s.score)) best = { k, s }; } return best; }
+function candsFor(key, held) {
+  const H = JSON.stringify(held);
+  const mk = `const mk=(c,s,how,m,rr)=>{const a=A[c],k=D[c];if(!a||!k||!k.length||!a.atr)return null;const e=k[k.length-1].c,T=a.atr;return{c,s,e,stop:e-s*m*T,tp:e+s*rr*m*T,how,score:0}};`;
+  const code = {
+    rule: `${mk}const o=[];COINS.forEach(c=>{if(H.includes(c))return;const v=verdict(c);if(v&&v.ok){const p=planOf(c);if(p)o.push({c,s:p.s,e:p.live,stop:p.stop,tp:p.tp,how:"✅ AI 規則訊號（"+FAMZH[ruleOf(c).fam]+"）",score:9})}});return o;`,
+    sim: `const o=[];COINS.slice(0,30).forEach(c=>{if(H.includes(c))return;let r;try{r=simAsk(c,0)}catch(e){return}if(!r||!r.ok)return;o.push({c,s:r.plan.s,e:r.plan.e,stop:r.plan.stop,tp:r.plan.tp,how:"🎲 相似行情模擬（驗證平均 "+f2(r.best.neu.avg)+"）",score:r.best.neu.avg})});return o.sort((a,b)=>b.score-a.score);`,
+    mom: `${mk}const o=[];COINS.slice(0,80).forEach(c=>{if(H.includes(c))return;const a=A[c];if(!a||!a.B)return;const n=a.n,R=a.B.R[50],x=a.kk[n-1],av=a.B.R[20].av[n-1];if(!R||!(av>0))return;if(x.c>R.hh[n-1]&&x.v>1.5*av)o.push(mk(c,1,"🚀 動能突破：創 50 根新高、量放大",2,2));else if(x.c<R.ll[n-1]&&x.v>1.5*av)o.push(mk(c,-1,"🚀 動能突破：創 50 根新低、量放大",2,2))});return o.filter(Boolean);`,
+    rev: `${mk}const o=[];COINS.slice(0,80).forEach(c=>{if(H.includes(c))return;const a=A[c];if(!a||!a.B)return;const z=a.B.z[a.n-1];if(z<-3)o.push(mk(c,1,"🔄 極端反轉：跌到平均下 "+(-z).toFixed(1)+" 個標準差",1.5,1.5));else if(z>3)o.push(mk(c,-1,"🔄 極端反轉：漲到平均上 "+z.toFixed(1)+" 個標準差",1.5,1.5))});return o.filter(Boolean);`,
+    btc: `${mk}if(H.includes("BTC"))return[];const a=A.BTC;if(!a||!a.B)return[];const d=a.B.tdir.get(a.lastT)||0;return d?[mk("BTC",d,"₿ BTC 跟趨勢："+(d>0?"1h 大方向向上":"1h 大方向向下"),3,3)].filter(Boolean):[];`,
+    rand: `${mk}if(Math.random()>.3)return[];const L=COINS.slice(0,50).filter(c=>!H.includes(c));if(!L.length)return[];const c=L[Math.floor(Math.random()*L.length)];return[mk(c,Math.random()<.5?1:-1,"🎰 隨機亂買（對照組）",1.5,2)].filter(Boolean);`,
+  }[key];
+  try { return JSON.parse(G(`JSON.stringify((()=>{const H=${H};${code}})())`)); } catch (e) { console.log("策略 " + key + " 出錯：" + e.message); return []; }
+}
+async function bookTick(key, follow) {
+  const b = st.books[key], now = Date.now(), msgs = [], loud = key === "main" && st.paperMsgs !== false;
+  for (const p of b.pos.slice()) {
+    const px = paperPx(p.c); if (!px) continue;
+    const hitSL = p.s > 0 ? px <= p.stop : px >= p.stop, hitTP = p.s > 0 ? px >= p.tp : px <= p.tp, old = now - p.t > 48 * (p.tfms || 36e5);
+    if (!hitSL && !hitTP && !old) continue;
+    const ex = px * (1 - p.s * PAPER_FEE), pnl = p.notional * ((ex - p.entry) / p.entry) * p.s, why = hitSL ? "停損" : hitTP ? "停利" : "時間到";
+    b.eq += pnl; b.pos = b.pos.filter(x => x !== p);
+    b.log.push({ c: p.c, s: p.s, t: p.t, end: now, entry: p.entry, exit: ex, pnl, why, how: p.how, R: pnl / p.riskU });
+    if (loud) msgs.push(`🤖 總帳戶平倉：${p.s > 0 ? "做多" : "做空"} ${p.c}（${why}）${pnl >= 0 ? "+" : ""}${pnl.toFixed(2)} U → 帳戶 ${b.eq.toFixed(2)} U`);
+  }
+  b.peak = Math.max(b.peak || b.eq0, b.eq);
+  const lastT = G("A.BTC&&A.BTC.lastT||0");
+  if (lastT && lastT !== b.scanT && b.pos.length < 3 && b.eq > b.eq0 * 0.5) {
+    b.scanT = lastT;
+    const held = b.pos.map(p => p.c).concat(b.log.filter(x => now - x.end < 6 * 36e5).map(x => x.c));
+    let cands = [];
+    if (key === "main") { cands = follow ? candsFor(follow, held).map(x => ({ ...x, how: x.how + "〔總帳戶跟著這個策略〕" })) : candsFor("rule", held).concat(candsFor("sim", held)); }
+    else cands = candsFor(key, held);
+    for (const x of cands) {
+      if (b.pos.length >= 3) break;
+      if (b.pos.filter(p => p.s === x.s).length >= 2) continue;
+      const stopPct = Math.abs(x.e - x.stop) / x.e; if (!(stopPct > 0.002)) continue;
+      let notional = Math.min(b.eq * 0.01 / stopPct, b.eq * 3); const entry = x.e * (1 + x.s * PAPER_FEE);
+      b.pos.push({ c: x.c, s: x.s, entry, stop: x.stop, tp: x.tp, notional, riskU: notional * stopPct, t: now, how: x.how, tfms: G("TFMS[tf]") });
+      if (loud) msgs.push(`🤖 總帳戶開倉：${x.s > 0 ? "做多" : "做空"} ${x.c} @ ${G(`fp(${x.e})`)}\n停損 ${G(`fp(${x.stop})`)}・停利 ${G(`fp(${x.tp})`)}・倉位 ${notional.toFixed(0)} U（約 ${Math.max(1, Math.ceil(notional / b.eq))} 倍）\n理由：${x.how}`);
+    }
+  }
+  if (b.log.length > 300) b.log.splice(0, b.log.length - 300);
+  for (const m of msgs) { console.log(m.split("\n")[0]); await send(m); }
+}
+async function paperTick() {
+  const bb = bestBook(); st.follow = bb ? bb.k : null;
+  for (const k of Object.keys(BOOKS)) await bookTick(k, k === "main" ? st.follow : null);
+}
+function paperSummary() {
+  const days = Math.max(1, Math.ceil((Date.now() - st.books.main.start) / 864e5)), d0 = new Date(); d0.setHours(0, 0, 0, 0);
+  const line = k => { const b = st.books[k], s = bookStat(b), ret = (b.eq / b.eq0 - 1) * 100, td = b.log.filter(x => x.end >= d0.getTime()).reduce((a, x) => a + x.pnl, 0); return `${BOOKS[k].split("（")[0]}：${b.eq.toFixed(1)} U（${ret >= 0 ? "+" : ""}${ret.toFixed(1)}%）・${s.n} 筆・勝率 ${(s.win * 100).toFixed(0)}%・每筆平均 ${s.avg >= 0 ? "+" : ""}${s.avg.toFixed(2)}R・今天 ${td >= 0 ? "+" : ""}${td.toFixed(1)} U・持倉 ${b.pos.length}`; };
+  const keys = Object.keys(BOOKS).filter(k => k !== "main").sort((a, b) => st.books[b].eq - st.books[a].eq);
+  return `🤖 AI 自己摸索（第 ${days} 天，每個帳戶都是虛擬 1000 U、真實行情）\n\n${line("main")}\n總帳戶現在跟著：${st.follow ? BOOKS[st.follow].split("（")[0] : "還沒有策略累積到 10 筆以上又賺錢，先用規則＋相似行情"}\n\n各策略排行：\n` + keys.map(line).join("\n") + `\n\n🎰 隨機亂買是對照組：贏不了它的策略就等於沒用。`;
+}
+function paperWrite() {
+  const out = { time: Date.now(), follow: st.follow, names: BOOKS, books: {} };
+  for (const k of Object.keys(BOOKS)) { const b = st.books[k]; out.books[k] = { ...b, stat: bookStat(b), log: b.log.slice(-60), open: b.pos.map(p => ({ ...p, px: paperPx(p.c) })) }; }
+  const m = out.books.main; Object.assign(out, { eq0: m.eq0, eq: m.eq, start: m.start, peak: m.peak, log: m.log, open: m.open }); // 相容舊網頁
+  writeData("paper.json", out);
 }
 
 // ---- 第一輪 ----
@@ -386,10 +469,12 @@ while (Date.now() - T0 < RUN_MS) {
     if (Date.now() - lastJ > 10 * 6e4) { journalUpdate(); lastJ = Date.now(); }
     sentN += await alerts();
     await hourly();
+    await paperTick();
+    if (!st.paperW || Date.now() - st.paperW > 20 * 6e4) { paperWrite(); st.paperW = Date.now(); }
     await heartbeat(cmds.some(t => /^\/alive|^\/ping/i.test(t)));
   } catch (e) { console.log("這一輪出錯，下一輪再試：", e.message); }
   save();
 }
-journalUpdate(); modelWrite(); save();
+journalUpdate(); modelWrite(); paperWrite(); save();
 console.log(`done：連續盯盤 ${Math.round((Date.now() - T0) / 6e4)} 分鐘、更新價格 ${ticks} 次、送出 ${sentN} 則提醒`);
 process.exit(0);
