@@ -85,8 +85,10 @@ input{width:90px;font:inherit;padding:4px 6px;border:1px solid var(--bd);border-
 <button class="on" onclick="addPos()">＋ 加入監控</button></div>
 <div id="poslist"></div></details>
 </section>
+<section class="pg" data-pg="bot">
+<div class="card"><div class="row"><b id="papersum">🤖 AI 自動交易</b><button onclick="loadPaper()">🔄 更新</button></div><div id="paper" style="margin-top:6px"><p class="mut">載入中…</p></div></div>
+</section>
 <section class="pg" data-pg="ai">
-<details class="card" open><summary id="papersum">🤖 AI 自己摸索（虛擬帳戶）</summary><div id="paper"><p class="mut">雲端還沒產生練習帳戶資料，最多等 20 分鐘。</p></div></details>
 <details class="card"><summary id="optsum">🧠 AI 學習中…</summary><div id="opt"></div></details>
 <details class="card"><summary id="jsum">📚 累積經驗</summary><div id="journal"></div></details>
 <details class="card"><summary id="learnsum">🔍 錯誤來源分析</summary><div id="learn"></div></details>
@@ -825,26 +827,44 @@ function paintCh(){const el=$("ch");if(!el)return;const ch=chGet(),pct=x=>(x*100
  el.innerHTML=h}
 
 /* ===== 封面＋選單＋查幣分析 ===== */
-const PAGES=[["home","🏠","首頁"],["rec","⭐","現在推薦"],["coin","🔍","查幣・問要不要買"],["ch","🏁","挑戰賽"],["pos","💼","我的持倉"],["ai","🧠","AI 學習與成績"],["market","📰","新聞・網格"],["set","⚙️","設定・提醒"]];
+const PAGES=[["home","🏠","首頁"],["rec","⭐","現在推薦"],["coin","🔍","查幣・問要不要買"],["bot","🤖","AI 自動交易"],["ch","🏁","挑戰賽"],["pos","💼","我的持倉"],["ai","🧠","AI 學習與成績"],["market","📰","新聞・網格"],["set","⚙️","設定・提醒"]];
 function menu(on){if(!document.body)return;$("drawer").classList.toggle("on",!!on)}
 function go(p){if(typeof location!=="undefined"&&location.hash!=="#"+p)location.hash=p;else showPg(p)}
 function showPg(p){if(!document.body)return;if(!PAGES.some(x=>x[0]===p))p="home";document.querySelectorAll(".pg").forEach(e=>e.classList.toggle("on",e.dataset.pg===p));
  const g=PAGES.find(x=>x[0]===p);$("ptitle").textContent=g[1]+" "+g[2];document.querySelectorAll("#nav a").forEach(a=>a.classList.toggle("on",a.dataset.pg===p));menu(false);try{scrollTo(0,0)}catch(e){}
- if(p==="coin")setTimeout(()=>{paint();paintAna()},40);if(p==="home")paintHome();if(p==="ch")paintCh();if(p==="pos")paintPos();if(p==="rec"){paintRec();paintSqz()}}
+ if(p==="coin")setTimeout(()=>{paint();paintAna()},40);if(p==="home")paintHome();if(p==="ch")paintCh();if(p==="pos")paintPos();if(p==="rec"){paintRec();paintSqz()}if(p==="bot"){loadPaper();paintPaper()}}
 addEventListener("hashchange",()=>showPg(location.hash.slice(1)));
 function buildNav(){if(!document.body)return;const h=PAGES.map(x=>`<a data-pg="${x[0]}" onclick="go('${x[0]}')"><span style="font-size:20px">${x[1]}</span>${x[2]}</a>`).join("");$("nav").innerHTML=`<div class="mut" style="padding:4px 12px 10px">幣推測・選單</div>`+h;
  $("menuGrid").innerHTML=PAGES.slice(1).map(x=>`<a onclick="go('${x[0]}')"><span style="font-size:20px">${x[1]}</span>${x[2]}</a>`).join("")}
 
-let PAPER=null;
-async function loadPaper(){if(!document.body)return;try{const r=await fetch("data/paper.json?"+Date.now(),{cache:"no-store"});if(r.ok){PAPER=await r.json();paintPaper();paintHome()}}catch(e){}}
-function paintPaper(){const el=$("paper");if(!el||!PAPER)return;const P0=PAPER,L=P0.log||[],w=L.filter(x=>x.pnl>0).length,ret=(P0.eq/P0.eq0-1)*100,days=Math.max(1,Math.ceil((Date.now()-P0.start)/864e5));
- $("papersum").textContent=`🤖 AI 自己摸索・總帳戶：${P0.eq.toFixed(2)} U（${ret>=0?"+":""}${ret.toFixed(2)}%）`;
- const by={};L.forEach(x=>{const k=(x.how||"").split("（")[0];(by[k]=by[k]||[]).push(x.pnl)});
- el.innerHTML=`<div class="mut">AI 用虛擬 ${P0.eq0} U、真實即時價格自己買賣（不碰你的幣安帳戶）。每筆最多虧 1%、最多 3 倍、同時最多 3 筆。第 ${days} 天，資料更新於 ${hm(P0.time)}。</div>
- <div class="tiles" style="margin-top:8px"><div class="tile"><small>帳戶</small><b style="color:${ret>=0?"var(--up)":"var(--dn)"}">${P0.eq.toFixed(2)} U</b></div><div class="tile"><small>報酬</small><b>${ret>=0?"+":""}${ret.toFixed(2)}%</b></div><div class="tile"><small>平倉筆數／勝率</small><b>${L.length} 筆・${L.length?(w/L.length*100).toFixed(0):0}%</b></div><div class="tile"><small>最高帳戶</small><b>${(P0.peak||P0.eq).toFixed(2)} U</b></div></div>`+
- (P0.books?`<p><b>🧪 各策略排行（每個都是虛擬 1000 U）</b></p><div class="mut">總帳戶現在跟著：${P0.follow?(P0.names[P0.follow]||P0.follow).split("（")[0]:"還沒有策略累積到 10 筆以上又賺錢，先用規則＋相似行情"}</div><table><tr><th>策略</th><th>帳戶</th><th>筆數</th><th>勝率</th><th>每筆</th></tr>`+Object.keys(P0.books).filter(k=>k!=="main").sort((a,b)=>P0.books[b].eq-P0.books[a].eq).map(k=>{const b=P0.books[k],st2=b.stat||{n:0,win:0,avg:0},r=(b.eq/b.eq0-1)*100;return`<tr${k===P0.follow?' style="font-weight:700"':''}><td>${(P0.names[k]||k).split("（")[0]}</td><td style="color:${r>=0?"var(--up)":"var(--dn)"}">${b.eq.toFixed(1)}</td><td>${st2.n}</td><td>${(st2.win*100).toFixed(0)}%</td><td>${st2.avg>=0?"+":""}${st2.avg.toFixed(2)}R</td></tr>`}).join("")+`</table><div class="mut">🎰 隨機亂買是對照組：贏不了它的策略就等於沒用。總帳戶只會跟「累積 10 筆以上、每筆平均賺超過 0.1R」的策略。</div>`:"")+(Object.keys(by).length?`<p><b>總帳戶用的方法</b></p>`+Object.entries(by).map(([k,a])=>{const t=a.reduce((p,q)=>p+q,0);return`<div class="mut">${k}：${a.length} 筆，合計 <b style="color:${t>=0?"var(--up)":"var(--dn)"}">${t>=0?"+":""}${t.toFixed(2)} U</b></div>`}).join(""):"")+
- `<p><b>持倉中</b></p>`+((P0.open||[]).length?P0.open.map(p=>{const u=p.px?p.notional*((p.px-p.entry)/p.entry)*p.s:0;return`<div style="padding:4px 0;border-bottom:1px solid var(--bd)">${p.s>0?"做多":"做空"} <b>${p.c}</b> 進場 ${fp(p.entry)}・停損 ${fp(p.stop)}・停利 ${fp(p.tp)}・倉位 ${p.notional.toFixed(0)} U・浮動 <b style="color:${u>=0?"var(--up)":"var(--dn)"}">${u>=0?"+":""}${u.toFixed(2)} U</b><div class="mut">${p.how}</div></div>`}).join(""):"<p class='mut'>沒有持倉（沒有夠好的機會就不做）。</p>")+
- (L.length?`<p><b>最近平倉</b></p>`+L.slice(-15).reverse().map(x=>`<div class="mut">${hm(x.end)} ${x.s>0?"多":"空"} ${x.c}：${x.why}・<b style="color:${x.pnl>=0?"var(--up)":"var(--dn)"}">${x.pnl>=0?"+":""}${x.pnl.toFixed(2)} U</b>・${(x.how||"").split("（")[0]}</div>`).join(""):"")}
+/* ===== 🤖 AI 自動交易視窗：雲端的虛擬帳戶在做什麼、即時盈虧、正在看哪些幣、撞牆改方法紀錄 ===== */
+let PAPER=null,PXC={},PXT=0;
+function paperURL(){try{if(location.hostname.endsWith("github.io")){const o=location.hostname.split(".")[0],r=location.pathname.split("/")[1];if(r)return`https://raw.githubusercontent.com/${o}/${r}/main/data/paper.json?t=${Date.now()}`}}catch(e){}return"data/paper.json?"+Date.now()}
+async function loadPaper(){if(!document.body)return;for(const u of[paperURL(),"data/paper.json?"+Date.now()]){try{const r=await fetch(u,{cache:"no-store"});if(r.ok){const j=await r.json();if(!PAPER||!j.time||j.time>=(PAPER.time||0))PAPER=j;paintPaper();paintHome();return}}catch(e){}}}
+function botCoins(){if(!PAPER||!PAPER.books)return[];const s=new Set();Object.values(PAPER.books).forEach(b=>(b.open||[]).forEach(p=>s.add(p.c)));return[...s]}
+async function botPx(){const L=botCoins().filter(c=>!(D[c]&&D[c].length));if(!L.length||Date.now()-PXT<8000)return;PXT=Date.now();
+ try{const r=await getJ(`${REST}/api/v3/ticker/price?symbols=${encodeURIComponent(JSON.stringify(L.map(c=>c+"USDT")))}`,1);r.forEach(x=>PXC[x.symbol.replace(/USDT$/,"")]=+x.price)}catch(e){}}
+function livePx(c,fb){const k=D[c];return k&&k.length?k[k.length-1].c:PXC[c]||fb}
+function paintPaper(){const el=$("paper");if(!el)return;if(!PAPER){el.innerHTML="<p class='mut'>雲端還沒產生資料。新版上傳後，雲端下一輪開始幾分鐘內就會出現。</p>";return}
+ const B=PAPER.books||{main:PAPER},names=PAPER.names||{main:"🤖 總帳戶"},m=B.main,now=Date.now();botPx();
+ const fl=b=>(b.open||[]).reduce((a,p)=>{const px=livePx(p.c,p.px);return a+(px?p.notional*((px-p.entry)/p.entry)*p.s:0)},0);
+ const mf=fl(m),meq=m.eq+mf,ret=(meq/m.eq0-1)*100,L=m.log||[],w=L.filter(x=>x.pnl>0).length,days=Math.max(1,Math.ceil((now-m.start)/864e5));
+ $("papersum").textContent=`🤖 總帳戶：${meq.toFixed(2)} U（${ret>=0?"+":""}${ret.toFixed(2)}%）`;
+ const age=Math.round((now-PAPER.time)/6e4);
+ let h=`<div class="mut">雲端用虛擬 ${m.eq0} U、幣安真實價格，24 小時自己找機會、自己下單、自己停損停利（不碰你的幣安帳戶）。第 ${days} 天・雲端資料 ${age} 分鐘前，價格即時更新。</div>
+ <div class="tiles" style="margin-top:8px"><div class="tile"><small>總帳戶（含未平倉）</small><b style="color:${ret>=0?"var(--up)":"var(--dn)"}">${meq.toFixed(2)} U</b></div><div class="tile"><small>報酬</small><b>${ret>=0?"+":""}${ret.toFixed(2)}%</b></div><div class="tile"><small>平倉／勝率</small><b>${L.length} 筆・${L.length?(w/L.length*100).toFixed(0):0}%</b></div><div class="tile"><small>現在跟著</small><b style="font-size:14px">${PAPER.follow?(names[PAPER.follow]||"").split("（")[0]:"規則＋相似行情"}</b></div></div>`;
+ h+=`<p><b>📈 持倉中（即時）</b></p>`+((m.open||[]).length?m.open.map(p=>{const px=livePx(p.c,p.px),u=px?p.notional*((px-p.entry)/p.entry)*p.s:0,toTp=Math.abs(p.tp-p.entry),prog=px?Math.max(-1,Math.min(1,((px-p.entry)*p.s)/(p.s*(px-p.entry)>=0?toTp:Math.abs(p.entry-p.stop)))):0,held=Math.round((now-p.t)/36e5*10)/10;
+  return`<div style="border:1px solid var(--bd);border-radius:10px;padding:8px;margin:6px 0"><div class="row"><b>${p.s>0?"▲ 做多":"▼ 做空"} ${p.c}</b><b style="color:${u>=0?"var(--up)":"var(--dn)"}">${u>=0?"+":""}${u.toFixed(2)} U</b></div>
+  <div class="mut">進場 ${fp(p.entry)} → 現在 ${px?fp(px):"…"}・停損 ${fp(p.stop)}・停利 ${fp(p.tp)}・倉位 ${p.notional.toFixed(0)} U・已持有 ${held} 小時</div>
+  <div style="display:flex;height:8px;border-radius:4px;overflow:hidden;background:var(--bd);margin:5px 0"><div style="width:50%;display:flex;justify-content:flex-end">${prog<0?`<div style="width:${(-prog*100).toFixed(0)}%;background:var(--dn)"></div>`:""}</div><div style="width:50%">${prog>0?`<div style="width:${(prog*100).toFixed(0)}%;height:8px;background:var(--up)"></div>`:""}</div></div>
+  <div class="mut" style="display:flex;justify-content:space-between"><span>← 停損</span><span>進場</span><span>停利 →</span></div>${px&&(p.s*(px-p.stop)<=0)?`<div style="color:var(--dn)">⚠️ 已碰到停損價，雲端下一次檢查就會平倉（實際虧損約 ${(-p.riskU).toFixed(2)} U）</div>`:px&&(p.s*(px-p.tp)>=0)?`<div style="color:var(--up)">🎯 已碰到停利價，雲端下一次檢查就會平倉</div>`:""}<div class="mut">理由：${p.how}</div></div>`}).join(""):"<p class='mut'>現在沒有持倉：沒有夠好的機會就不做。</p>");
+ const wt=m.watch||[];h+=`<p><b>👀 剛剛掃描看到的機會</b>${m.watchT?`<span class="mut">（${hm(m.watchT)}，每根K線收盤掃一次）</span>`:""}</p>`+(wt.length?wt.map(x=>`<div class="mut">・${x.s>0?"多":"空"} <b>${x.c}</b>：${x.how}${(m.open||[]).some(p=>p.c===x.c)?" → 已下單":""}</div>`).join(""):"<p class='mut'>上次掃描沒有找到符合條件的。</p>");
+ h+=`<p><b>🧪 各策略比賽（每個虛擬 1000 U）</b></p><table><tr><th>策略</th><th>帳戶</th><th>筆數</th><th>勝率</th><th>每筆</th></tr>`+Object.keys(B).filter(k=>k!=="main").sort((a,b)=>(B[b].eq+fl(B[b]))-(B[a].eq+fl(B[a]))).map(k=>{const b=B[k],s2=b.stat||{n:0,win:0,avg:0},e=b.eq+fl(b),r=(e/b.eq0-1)*100;
+  return`<tr${k===PAPER.follow?' style="font-weight:700"':''}><td>${(names[k]||k).split("（")[0]}${b.vdesc?`<div class="mut" style="font-size:11px">${b.vdesc}</div>`:""}</td><td style="color:${r>=0?"var(--up)":"var(--dn)"}">${e.toFixed(1)}</td><td>${s2.n}</td><td>${(s2.win*100).toFixed(0)}%</td><td>${s2.avg>=0?"+":""}${s2.avg.toFixed(2)}R</td></tr>`}).join("")+`</table><div class="mut">粗體＝總帳戶正在跟的。🎰 隨機亂買是對照組，贏不了它的策略等於沒用。總帳戶只跟「10 筆以上、每筆平均賺超過 0.1R」的。</div>`;
+ const ch=[];Object.keys(B).forEach(k=>(B[k].changes||[]).forEach(c=>ch.push({...c,k})));
+ if(ch.length)h+=`<p><b>🔧 撞牆改方法紀錄</b></p>`+ch.sort((a,b)=>b.t-a.t).slice(0,10).map(c=>`<div class="mut">${hm(c.t)} ${(names[c.k]||c.k).split("（")[0]}：${c.why} → 改成「${c.to}」</div>`).join("");
+ if(L.length)h+=`<p><b>📒 總帳戶最近平倉</b></p>`+L.slice(-20).reverse().map(x=>`<div class="mut">${hm(x.end)} ${x.s>0?"多":"空"} <b>${x.c}</b> ${fp(x.entry)}→${fp(x.exit)}・${x.why}・<b style="color:${x.pnl>=0?"var(--up)":"var(--dn)"}">${x.pnl>=0?"+":""}${x.pnl.toFixed(2)} U</b>・${(x.how||"").split("（")[0]}</div>`).join("");
+ el.innerHTML=h}
 function paintHome(){const el=$("tiles");if(!el)return;if(loading||!COINS.length){el.innerHTML=`<div class="tile" style="grid-column:1/3"><small>狀態</small><b>正在抓最新行情…</b></div>`;return}
  const ok=COINS.filter(c=>{const v=verdict(c);return v&&v.ok}),dz=x=>x>0?"向上 ↑":x<0?"向下 ↓":"不明",b1=A.BTC&&A.BTC.tdir?A.BTC.tdir.get(A.BTC.lastT)||0:0,bd=btcDayDir(Date.now()),ch=chGet(),warn=POS.filter(p=>evalPos(p).lv!=="ok").length,O=OPT&&(OPT.ens||OPT.chosen||OPT.best);
  const t=(pg,label,val,col)=>`<div class="tile" onclick="go('${pg}')"><small>${label}</small><b${col?` style="color:${col}"`:""}>${val}</b></div>`;
@@ -853,7 +873,7 @@ function paintHome(){const el=$("tiles");if(!el)return;if(loading||!COINS.length
   +t("ch","🏁 挑戰賽",ch?`${ch.eq.toFixed(0)} / ${ch.target} U`:"還沒開始")
   +t("pos","💼 我的持倉",POS.length?`${POS.length} 筆${warn?`・⚠️ ${warn} 筆有狀況`:"・正常"}`:"沒有持倉",warn?"var(--dn)":"")
   +t("ai","🧠 AI 規則",ACTIVE?`通過・平均 ${O?f2(O.test.avg):"?"}`:"暫停中",ACTIVE?"":"var(--dn)")
-  +t("ai","🤖 AI 練習帳戶",PAPER?`${PAPER.eq.toFixed(0)} U（${PAPER.eq>=PAPER.eq0?"+":""}${((PAPER.eq/PAPER.eq0-1)*100).toFixed(1)}%）`:"準備中",PAPER?(PAPER.eq>=PAPER.eq0?"var(--up)":"var(--dn)"):"");
+  +t("bot","🤖 AI 自動交易",PAPER?`${PAPER.eq.toFixed(0)} U（${PAPER.eq>=PAPER.eq0?"+":""}${((PAPER.eq/PAPER.eq0-1)*100).toFixed(1)}%）`:"準備中",PAPER?(PAPER.eq>=PAPER.eq0?"var(--up)":"var(--dn)"):"");
  const td=$("topdot");if(td)td.textContent=Date.now()-lastMsg<30000?"● 即時":"○ 連線中";}
 
 function paintSqz(){const el=$("sqz");if(!el||!el.isConnected)return;if(busy()||!COINS.length){el.innerHTML="<p class='mut'>更新中…</p>";return}
@@ -922,8 +942,8 @@ function paintAna(){const el=$("ana");if(!el)return;const c=cur,a=A[c];
 analyze=(f=>(k,c)=>withC(c,()=>f(k,c)))(analyze);judge0=(f=>c=>withC(c,()=>f(c)))(judge0);planOf=(f=>c=>withC(c,()=>f(c)))(planOf);
 planTxt=(f=>(c,s)=>withC(c,()=>f(c,s)))(planTxt);rankOf=(f=>c=>withC(c,()=>f(c)))(rankOf);verdict=(f=>c=>withC(c,()=>f(c)))(verdict);
 evalPos=(f=>p=>withC(p&&p.c,()=>f(p)))(evalPos);paint=(f=>()=>withC(cur,f))(paint);
-setInterval(checkAlerts,2000);setInterval(paintLog,5000);setInterval(()=>{if(document.visibilityState!=="visible")return;if(CLOUD)refreshModel();else runOpt()},CLOUD?3e5:9e5);setInterval(()=>{if(CLOUD&&document.visibilityState==="visible")refreshModel()},3e5);setInterval(()=>{checkPos();paintPos();paintRec();paintHome();if(document.querySelector('.pg.on[data-pg="rec"]'))paintSqz();if(document.querySelector('.pg.on[data-pg="coin"]'))paintAna();if(!(document.activeElement&&/^ch[ETD]$/.test(document.activeElement.id)))paintCh()},2000);
-$("eq").oninput=paint;addEventListener("resize",paint);setInterval(paint,1000);loadPaper();setInterval(loadPaper,3e5);buildNav();showPg((typeof location!=="undefined"&&location.hash||"").slice(1)||"home");load();
+setInterval(checkAlerts,2000);setInterval(paintLog,5000);setInterval(()=>{if(document.visibilityState!=="visible")return;if(CLOUD)refreshModel();else runOpt()},CLOUD?3e5:9e5);setInterval(()=>{if(CLOUD&&document.visibilityState==="visible")refreshModel()},3e5);setInterval(()=>{checkPos();paintPos();paintRec();paintHome();if(document.querySelector('.pg.on[data-pg="rec"]'))paintSqz();if(document.querySelector('.pg.on[data-pg="bot"]'))paintPaper();if(document.querySelector('.pg.on[data-pg="coin"]'))paintAna();if(!(document.activeElement&&/^ch[ETD]$/.test(document.activeElement.id)))paintCh()},2000);
+$("eq").oninput=paint;addEventListener("resize",paint);setInterval(paint,1000);loadPaper();setInterval(loadPaper,6e4);buildNav();showPg((typeof location!=="undefined"&&location.hash||"").slice(1)||"home");load();
 </script>
 </body>
 </html>

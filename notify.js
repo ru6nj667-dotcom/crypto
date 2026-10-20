@@ -3,6 +3,7 @@
 // 每次執行會連續盯盤約 45 分鐘：每 1 分鐘更新價格、K線一收盤馬上判斷、Telegram 指令幾秒內回覆。
 import fs from "fs";
 import vm from "vm";
+import { execSync } from "child_process";
 
 const TOKEN = process.env.TG_TOKEN;
 const TF = process.env.TF || "1h";
@@ -376,15 +377,22 @@ for (const k of Object.keys(BOOKS)) st.books[k] ??= { start: Date.now(), eq0: 10
 function paperPx(c) { return G(`(()=>{const k=D[${JSON.stringify(c)}];return k&&k.length?k[k.length-1].c:null})()`); }
 function bookStat(b) { const L = b.log.filter(x => isFinite(x.R)), n = L.length, avg = n ? L.reduce((a, x) => a + x.R, 0) / n : 0; return { n, avg, win: n ? L.filter(x => x.pnl > 0).length / n : 0, score: n >= 10 ? avg * Math.sqrt(n) : -9 }; }
 function bestBook() { let best = null; for (const k of Object.keys(BOOKS)) { if (k === "main" || k === "rand") continue; const s = bookStat(st.books[k]); if (s.n >= 10 && s.avg > 0.1 && (!best || s.score > best.s.score)) best = { k, s }; } return best; }
+const VARIANTS = {
+  mom: [{ n: 50, vol: 1.5, m: 2, rr: 2 }, { n: 20, vol: 2, m: 1.5, rr: 3 }, { n: 50, vol: 1.2, m: 3, rr: 1.5 }],
+  rev: [{ z: 3, m: 1.5, rr: 1.5 }, { z: 2.5, m: 2, rr: 1 }, { z: 3.5, m: 1, rr: 2 }],
+  btc: [{ m: 3, rr: 3 }, { m: 2, rr: 2 }, { m: 4, rr: 2 }],
+};
+const vDesc = (k, v) => !v ? "" : k === "mom" ? `${v.n} 根新高低、量 ${v.vol} 倍、停損 ${v.m} ATR、停利 ${v.rr}R` : k === "rev" ? `偏離 ${v.z} 個標準差、停損 ${v.m} ATR、停利 ${v.rr}R` : `停損 ${v.m} ATR、停利 ${v.rr}R`;
 function candsFor(key, held) {
+  const V = JSON.stringify(VARIANTS[key] ? VARIANTS[key][st.books[key] ? (st.books[key].vi || 0) : 0] : {});
   const H = JSON.stringify(held);
   const mk = `const mk=(c,s,how,m,rr)=>{const a=A[c],k=D[c];if(!a||!k||!k.length||!a.atr)return null;const e=k[k.length-1].c,T=a.atr;return{c,s,e,stop:e-s*m*T,tp:e+s*rr*m*T,how,score:0}};`;
   const code = {
     rule: `${mk}const o=[];COINS.forEach(c=>{if(H.includes(c))return;const v=verdict(c);if(v&&v.ok){const p=planOf(c);if(p)o.push({c,s:p.s,e:p.live,stop:p.stop,tp:p.tp,how:"✅ AI 規則訊號（"+FAMZH[ruleOf(c).fam]+"）",score:9})}});return o;`,
     sim: `const o=[];COINS.slice(0,30).forEach(c=>{if(H.includes(c))return;let r;try{r=simAsk(c,0)}catch(e){return}if(!r||!r.ok)return;o.push({c,s:r.plan.s,e:r.plan.e,stop:r.plan.stop,tp:r.plan.tp,how:"🎲 相似行情模擬（驗證平均 "+f2(r.best.neu.avg)+"）",score:r.best.neu.avg})});return o.sort((a,b)=>b.score-a.score);`,
-    mom: `${mk}const o=[];COINS.slice(0,80).forEach(c=>{if(H.includes(c))return;const a=A[c];if(!a||!a.B)return;const n=a.n,R=a.B.R[50],x=a.kk[n-1],av=a.B.R[20].av[n-1];if(!R||!(av>0))return;if(x.c>R.hh[n-1]&&x.v>1.5*av)o.push(mk(c,1,"🚀 動能突破：創 50 根新高、量放大",2,2));else if(x.c<R.ll[n-1]&&x.v>1.5*av)o.push(mk(c,-1,"🚀 動能突破：創 50 根新低、量放大",2,2))});return o.filter(Boolean);`,
-    rev: `${mk}const o=[];COINS.slice(0,80).forEach(c=>{if(H.includes(c))return;const a=A[c];if(!a||!a.B)return;const z=a.B.z[a.n-1];if(z<-3)o.push(mk(c,1,"🔄 極端反轉：跌到平均下 "+(-z).toFixed(1)+" 個標準差",1.5,1.5));else if(z>3)o.push(mk(c,-1,"🔄 極端反轉：漲到平均上 "+z.toFixed(1)+" 個標準差",1.5,1.5))});return o.filter(Boolean);`,
-    btc: `${mk}if(H.includes("BTC"))return[];const a=A.BTC;if(!a||!a.B)return[];const d=a.B.tdir.get(a.lastT)||0;return d?[mk("BTC",d,"₿ BTC 跟趨勢："+(d>0?"1h 大方向向上":"1h 大方向向下"),3,3)].filter(Boolean):[];`,
+    mom: `${mk}const V=${V},o=[];COINS.slice(0,80).forEach(c=>{if(H.includes(c))return;const a=A[c];if(!a||!a.B)return;const n=a.n,R=a.B.R[V.n],x=a.kk[n-1],av=a.B.R[20].av[n-1];if(!R||!(av>0))return;if(x.c>R.hh[n-1]&&x.v>V.vol*av)o.push(mk(c,1,"🚀 動能突破：創 "+V.n+" 根新高、量放大",V.m,V.rr));else if(x.c<R.ll[n-1]&&x.v>V.vol*av)o.push(mk(c,-1,"🚀 動能突破：創 "+V.n+" 根新低、量放大",V.m,V.rr))});return o.filter(Boolean);`,
+    rev: `${mk}const V=${V},o=[];COINS.slice(0,80).forEach(c=>{if(H.includes(c))return;const a=A[c];if(!a||!a.B)return;const z=a.B.z[a.n-1];if(z<-V.z)o.push(mk(c,1,"🔄 極端反轉：跌到平均下 "+(-z).toFixed(1)+" 個標準差",V.m,V.rr));else if(z>V.z)o.push(mk(c,-1,"🔄 極端反轉：漲到平均上 "+z.toFixed(1)+" 個標準差",V.m,V.rr))});return o.filter(Boolean);`,
+    btc: `${mk}if(H.includes("BTC"))return[];const a=A.BTC;if(!a||!a.B)return[];const d=a.B.tdir.get(a.lastT)||0;const V=${V};return d?[mk("BTC",d,"₿ BTC 跟趨勢："+(d>0?"1h 大方向向上":"1h 大方向向下"),V.m,V.rr)].filter(Boolean):[];`,
     rand: `${mk}if(Math.random()>.3)return[];const L=COINS.slice(0,50).filter(c=>!H.includes(c));if(!L.length)return[];const c=L[Math.floor(Math.random()*L.length)];return[mk(c,Math.random()<.5?1:-1,"🎰 隨機亂買（對照組）",1.5,2)].filter(Boolean);`,
   }[key];
   try { return JSON.parse(G(`JSON.stringify((()=>{const H=${H};${code}})())`)); } catch (e) { console.log("策略 " + key + " 出錯：" + e.message); return []; }
@@ -401,14 +409,20 @@ async function bookTick(key, follow) {
     if (loud) msgs.push(`🤖 總帳戶平倉：${p.s > 0 ? "做多" : "做空"} ${p.c}（${why}）${pnl >= 0 ? "+" : ""}${pnl.toFixed(2)} U → 帳戶 ${b.eq.toFixed(2)} U`);
   }
   b.peak = Math.max(b.peak || b.eq0, b.eq);
+  // 撞牆就改方法：這個參數做了 10 筆以上、平均每筆虧超過 0.2R，就換下一組參數重新摸索
+  if (VARIANTS[key]) { b.vi ??= 0; b.vStart ??= b.start; b.changes ??= [];
+    const L = b.log.filter(x => x.end >= b.vStart), n = L.length, avg = n ? L.reduce((a, x) => a + x.R, 0) / n : 0;
+    if (n >= 10 && avg < -0.2) { const from = vDesc(key, VARIANTS[key][b.vi]); b.vi = (b.vi + 1) % VARIANTS[key].length; b.vStart = now; const to = vDesc(key, VARIANTS[key][b.vi]);
+      b.changes.push({ t: now, from, to, why: `${n} 筆平均 ${avg.toFixed(2)}R` }); console.log(`🔧 ${BOOKS[key].split("（")[0]} 撞牆（${n} 筆平均 ${avg.toFixed(2)}R），改成：${to}`); } }
   const lastT = G("A.BTC&&A.BTC.lastT||0");
-  if (lastT && lastT !== b.scanT && b.pos.length < 3 && b.eq > b.eq0 * 0.5) {
+  if (lastT && lastT !== b.scanT) { // 每根K線收盤都掃一次（滿倉也掃，讓你看到它在看哪些）
     b.scanT = lastT;
     const held = b.pos.map(p => p.c).concat(b.log.filter(x => now - x.end < 6 * 36e5).map(x => x.c));
     let cands = [];
     if (key === "main") { cands = follow ? candsFor(follow, held).map(x => ({ ...x, how: x.how + "〔總帳戶跟著這個策略〕" })) : candsFor("rule", held).concat(candsFor("sim", held)); }
     else cands = candsFor(key, held);
-    for (const x of cands) {
+    b.watch = cands.slice(0, 6).map(x => ({ c: x.c, s: x.s, how: x.how, e: x.e })); b.watchT = now;
+    for (const x of (b.eq > b.eq0 * 0.5 ? cands : [])) {
       if (b.pos.length >= 3) break;
       if (b.pos.filter(p => p.s === x.s).length >= 2) continue;
       const stopPct = Math.abs(x.e - x.stop) / x.e; if (!(stopPct > 0.002)) continue;
@@ -430,9 +444,13 @@ function paperSummary() {
   const keys = Object.keys(BOOKS).filter(k => k !== "main").sort((a, b) => st.books[b].eq - st.books[a].eq);
   return `🤖 AI 自己摸索（第 ${days} 天，每個帳戶都是虛擬 1000 U、真實行情）\n\n${line("main")}\n總帳戶現在跟著：${st.follow ? BOOKS[st.follow].split("（")[0] : "還沒有策略累積到 10 筆以上又賺錢，先用規則＋相似行情"}\n\n各策略排行：\n` + keys.map(line).join("\n") + `\n\n🎰 隨機亂買是對照組：贏不了它的策略就等於沒用。`;
 }
+function gitSave() {
+  try { execSync('git add data && (git diff --cached --quiet || (git -c user.name="crypto-bot" -c user.email="crypto-bot@users.noreply.github.com" commit -qm "更新 AI 練習帳戶" && git pull --rebase -q && git push -q))', { stdio: "ignore", timeout: 90000 }); console.log("已把練習帳戶存到 GitHub（網頁 1～2 分鐘後看得到）"); }
+  catch (e) { console.log("存到 GitHub 這次沒成功，下次再試"); }
+}
 function paperWrite() {
   const out = { time: Date.now(), follow: st.follow, names: BOOKS, books: {} };
-  for (const k of Object.keys(BOOKS)) { const b = st.books[k]; out.books[k] = { ...b, stat: bookStat(b), log: b.log.slice(-60), open: b.pos.map(p => ({ ...p, px: paperPx(p.c) })) }; }
+  for (const k of Object.keys(BOOKS)) { const b = st.books[k]; out.books[k] = { ...b, stat: bookStat(b), log: b.log.slice(-60), open: b.pos.map(p => ({ ...p, px: paperPx(p.c) })), vdesc: VARIANTS[k] ? vDesc(k, VARIANTS[k][b.vi || 0]) : "" }; }
   const m = out.books.main; Object.assign(out, { eq0: m.eq0, eq: m.eq, start: m.start, peak: m.peak, log: m.log, open: m.open }); // 相容舊網頁
   writeData("paper.json", out);
 }
@@ -470,7 +488,7 @@ while (Date.now() - T0 < RUN_MS) {
     sentN += await alerts();
     await hourly();
     await paperTick();
-    if (!st.paperW || Date.now() - st.paperW > 20 * 6e4) { paperWrite(); st.paperW = Date.now(); }
+    if (!st.paperW || Date.now() - st.paperW > 15 * 6e4) { paperWrite(); st.paperW = Date.now(); gitSave(); }
     await heartbeat(cmds.some(t => /^\/alive|^\/ping/i.test(t)));
   } catch (e) { console.log("這一輪出錯，下一輪再試：", e.message); }
   save();
