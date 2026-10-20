@@ -400,6 +400,11 @@ function candsFor(key, held) {
 }
 async function bookTick(key, follow) {
   const b = st.books[key], now = Date.now(), msgs = [], loud = key === "main" && st.paperMsgs !== false;
+  for (const p of b.pos.slice()) { // 修正舊 bug：同一個幣同時做多又做空 → 把後開的那筆平掉
+    const first = b.pos.find(q => q.c === p.c); if (first === p) continue; const px = paperPx(p.c); if (!px) continue;
+    const ex = px * (1 - p.s * PAPER_FEE), pnl = p.notional * ((ex - p.entry) / p.entry) * p.s;
+    b.eq += pnl; b.pos = b.pos.filter(x => x !== p); b.log.push({ c: p.c, s: p.s, t: p.t, end: now, entry: p.entry, exit: ex, pnl, why: "跟另一筆對沖，平掉", how: p.how, R: pnl / p.riskU });
+  }
   for (const p of b.pos.slice()) {
     const px = paperPx(p.c); if (!px) continue;
     const hitSL = p.s > 0 ? px <= p.stop : px >= p.stop, hitTP = p.s > 0 ? px >= p.tp : px <= p.tp, old = now - p.t > 48 * (p.tfms || 36e5);
@@ -423,10 +428,12 @@ async function bookTick(key, follow) {
     let cands = [];
     if (key === "main") { cands = follow ? candsFor(follow, held).map(x => ({ ...x, how: x.how + "〔總帳戶跟著這個策略〕" })) : candsFor("rule", held).concat(candsFor("sim", held)); }
     else cands = candsFor(key, held);
-    if (key === "main" && b.pos.length === 0 && !cands.length) cands = ["mom", "rev", "btc", "force"].flatMap(k => candsFor(k, held)); // 沒有好機會也要做：動能→反轉→BTC→最強勢的幣
+    if (key === "main" && b.pos.length === 0 && !cands.length) cands = ["mom", "rev", "btc", "force"].flatMap(k => candsFor(k, held));
+    { const dir = {}; cands.forEach(x => (dir[x.c] ??= new Set()).add(x.s)); cands = cands.filter((x, i) => dir[x.c].size === 1 && cands.findIndex(y => y.c === x.c) === i); } // 同一個幣有人說多有人說空 → 意見衝突不做；同一個幣只留一筆 // 沒有好機會也要做：動能→反轉→BTC→最強勢的幣
     b.watch = cands.slice(0, 6).map(x => ({ c: x.c, s: x.s, how: x.how, e: x.e })); b.watchT = now;
     for (const x of (b.eq > b.eq0 * (key === "main" ? 0.3 : 0.5) ? cands : [])) {
       if (b.pos.length >= 3) break;
+      if (b.pos.some(p => p.c === x.c)) continue; // 同一個幣只能有一筆，絕不同時多空
       if (b.pos.filter(p => p.s === x.s).length >= 2) continue;
       const stopPct = Math.abs(x.e - x.stop) / x.e; if (!(stopPct > 0.002)) continue;
       const RISK = key === "main" ? 0.02 : 0.01, MAXLEV = key === "main" ? 10 : 3; // 總帳戶：每筆最多賠 2%、最高 10 倍槓桿
