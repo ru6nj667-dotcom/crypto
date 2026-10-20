@@ -393,6 +393,7 @@ function candsFor(key, held) {
     mom: `${mk}const V=${V},o=[];COINS.slice(0,80).forEach(c=>{if(H.includes(c))return;const a=A[c];if(!a||!a.B)return;const n=a.n,R=a.B.R[V.n],x=a.kk[n-1],av=a.B.R[20].av[n-1];if(!R||!(av>0))return;if(x.c>R.hh[n-1]&&x.v>V.vol*av)o.push(mk(c,1,"🚀 動能突破：創 "+V.n+" 根新高、量放大",V.m,V.rr));else if(x.c<R.ll[n-1]&&x.v>V.vol*av)o.push(mk(c,-1,"🚀 動能突破：創 "+V.n+" 根新低、量放大",V.m,V.rr))});return o.filter(Boolean);`,
     rev: `${mk}const V=${V},o=[];COINS.slice(0,80).forEach(c=>{if(H.includes(c))return;const a=A[c];if(!a||!a.B)return;const z=a.B.z[a.n-1];if(z<-V.z)o.push(mk(c,1,"🔄 極端反轉：跌到平均下 "+(-z).toFixed(1)+" 個標準差",V.m,V.rr));else if(z>V.z)o.push(mk(c,-1,"🔄 極端反轉：漲到平均上 "+z.toFixed(1)+" 個標準差",V.m,V.rr))});return o.filter(Boolean);`,
     btc: `${mk}if(H.includes("BTC"))return[];const a=A.BTC;if(!a||!a.B)return[];const d=a.B.tdir.get(a.lastT)||0;const V=${V};return d?[mk("BTC",d,"₿ BTC 跟趨勢："+(d>0?"1h 大方向向上":"1h 大方向向下"),V.m,V.rr)].filter(Boolean):[];`,
+    force: `${mk}const o=[];COINS.slice(0,40).forEach(c=>{if(H.includes(c))return;const k=D[c];if(!k||k.length<30)return;const r=k[k.length-1].c/k[k.length-25].c-1;if(isFinite(r))o.push({r,c})});o.sort((a,b)=>Math.abs(b.r)-Math.abs(a.r));return o.slice(0,6).map(x=>mk(x.c,x.r>0?1:-1,"💪 強迫練習：最近 24 根K線"+(x.r>0?"漲":"跌")+" "+(Math.abs(x.r)*100).toFixed(1)+"%，順著走",1.5,2)).filter(Boolean);`,
     rand: `${mk}if(Math.random()>.3)return[];const L=COINS.slice(0,50).filter(c=>!H.includes(c));if(!L.length)return[];const c=L[Math.floor(Math.random()*L.length)];return[mk(c,Math.random()<.5?1:-1,"🎰 隨機亂買（對照組）",1.5,2)].filter(Boolean);`,
   }[key];
   try { return JSON.parse(G(`JSON.stringify((()=>{const H=${H};${code}})())`)); } catch (e) { console.log("策略 " + key + " 出錯：" + e.message); return []; }
@@ -415,19 +416,22 @@ async function bookTick(key, follow) {
     if (n >= 10 && avg < -0.2) { const from = vDesc(key, VARIANTS[key][b.vi]); b.vi = (b.vi + 1) % VARIANTS[key].length; b.vStart = now; const to = vDesc(key, VARIANTS[key][b.vi]);
       b.changes.push({ t: now, from, to, why: `${n} 筆平均 ${avg.toFixed(2)}R` }); console.log(`🔧 ${BOOKS[key].split("（")[0]} 撞牆（${n} 筆平均 ${avg.toFixed(2)}R），改成：${to}`); } }
   const lastT = G("A.BTC&&A.BTC.lastT||0");
-  if (lastT && lastT !== b.scanT) { // 每根K線收盤都掃一次（滿倉也掃，讓你看到它在看哪些）
+  const mustTrade = key === "main" && b.pos.length === 0 && b.eq > b.eq0 * 0.3 && now - (b.forceT || 0) > 5 * 6e4; if (mustTrade) b.forceT = now; // 總帳戶一定要有單在跑：空手就馬上找一個進場練習
+  if (lastT && (lastT !== b.scanT || mustTrade)) { // 每根K線收盤都掃一次（滿倉也掃，讓你看到它在看哪些）
     b.scanT = lastT;
     const held = b.pos.map(p => p.c).concat(b.log.filter(x => now - x.end < 6 * 36e5).map(x => x.c));
     let cands = [];
     if (key === "main") { cands = follow ? candsFor(follow, held).map(x => ({ ...x, how: x.how + "〔總帳戶跟著這個策略〕" })) : candsFor("rule", held).concat(candsFor("sim", held)); }
     else cands = candsFor(key, held);
+    if (key === "main" && b.pos.length === 0 && !cands.length) cands = ["mom", "rev", "btc", "force"].flatMap(k => candsFor(k, held)); // 沒有好機會也要做：動能→反轉→BTC→最強勢的幣
     b.watch = cands.slice(0, 6).map(x => ({ c: x.c, s: x.s, how: x.how, e: x.e })); b.watchT = now;
-    for (const x of (b.eq > b.eq0 * 0.5 ? cands : [])) {
+    for (const x of (b.eq > b.eq0 * (key === "main" ? 0.3 : 0.5) ? cands : [])) {
       if (b.pos.length >= 3) break;
       if (b.pos.filter(p => p.s === x.s).length >= 2) continue;
       const stopPct = Math.abs(x.e - x.stop) / x.e; if (!(stopPct > 0.002)) continue;
-      let notional = Math.min(b.eq * 0.01 / stopPct, b.eq * 3); const entry = x.e * (1 + x.s * PAPER_FEE);
-      b.pos.push({ c: x.c, s: x.s, entry, stop: x.stop, tp: x.tp, notional, riskU: notional * stopPct, t: now, how: x.how, tfms: G("TFMS[tf]") });
+      const RISK = key === "main" ? 0.02 : 0.01, MAXLEV = key === "main" ? 10 : 3; // 總帳戶：每筆最多賠 2%、最高 10 倍槓桿
+      let notional = Math.min(b.eq * RISK / stopPct, b.eq * MAXLEV); const entry = x.e * (1 + x.s * PAPER_FEE);
+      b.pos.push({ c: x.c, s: x.s, entry, stop: x.stop, tp: x.tp, notional, riskU: notional * stopPct, lev: Math.max(1, Math.round(notional / b.eq)), t: now, how: x.how, tfms: G("TFMS[tf]") });
       if (loud) msgs.push(`🤖 總帳戶開倉：${x.s > 0 ? "做多" : "做空"} ${x.c} @ ${G(`fp(${x.e})`)}\n停損 ${G(`fp(${x.stop})`)}・停利 ${G(`fp(${x.tp})`)}・倉位 ${notional.toFixed(0)} U（約 ${Math.max(1, Math.ceil(notional / b.eq))} 倍）\n理由：${x.how}`);
     }
   }
