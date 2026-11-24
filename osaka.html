@@ -25,7 +25,7 @@ button{cursor:pointer}
 .flights{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:10px;margin-top:16px}
 .fl{background:rgba(255,255,255,.12);border-radius:12px;padding:10px 14px;display:flex;gap:12px;align-items:center}
 .fl b{font-size:22px;white-space:nowrap}.fl small{display:block;opacity:.85}
-.editsheet{display:flex;align-items:center;justify-content:center;margin-top:14px;min-height:48px;border-radius:12px;background:#fff;color:#b02a17;font-weight:900;font-size:17px;text-decoration:none;padding:8px 14px;text-align:center}
+.editsheet{display:none;align-items:center;justify-content:center;margin-top:14px;min-height:48px;border-radius:12px;background:#fff;color:#b02a17;font-weight:900;font-size:17px;text-decoration:none;padding:8px 14px;text-align:center}
 .hotel{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:14px;font-size:15px}
 .hotel button{background:#fff;color:var(--band);border:0;border-radius:999px;padding:6px 14px;font-weight:700;min-height:36px}
 .tabs{position:sticky;top:0;z-index:5;background:var(--bg);border-bottom:1px solid var(--line);display:flex;gap:6px;overflow-x:auto;padding:10px max(5vw,16px);scroll-snap-type:x mandatory}
@@ -132,7 +132,7 @@ body{font-size:18px;background:light-dark(#eef1f5,#111318)}
     <div class="fl"><b>15:25</b><div>去程 CI176 高雄 KHH → 關西 KIX T1<small>12/19 抵達 19:10（日本時間）</small></div></div>
     <div class="fl"><b>20:10</b><div>回程 CI177 關西 KIX T1 → 高雄 KHH<small>12/25 抵達 22:45（台灣時間）</small></div></div>
   </div>
-  <a class="editsheet" id="editSheet" href="https://docs.google.com/spreadsheets/d/1woNpm12FaIvTQLiYdrzPpE4TYu2TsKzj1xdzwks5VcU/edit" target="_blank" rel="noopener">要修改行程？點這裡打開共用試算表</a>
+  <a hidden class="editsheet" id="editSheet" href="https://docs.google.com/spreadsheets/d/1woNpm12FaIvTQLiYdrzPpE4TYu2TsKzj1xdzwks5VcU/edit" target="_blank" rel="noopener">要修改行程？點這裡打開共用試算表</a>
   <div class="hotel">住宿：<strong id="hotelName">—</strong><button id="hotelBtn" type="button">修改飯店</button></div>
 </header>
 <nav class="tabs" id="tabs" role="tablist"></nav>
@@ -292,7 +292,7 @@ $("list").addEventListener("click",async e=>{
   if(dl){
     if(dl.dataset.sure!=="1"){dl.dataset.sure="1";dl.textContent="再按一次確定刪除";setTimeout(()=>{if(dl.isConnected){dl.dataset.sure="";dl.textContent="刪除"}},4000);return}
     dl.disabled=true;
-    try{await db.collection("items").doc(dl.dataset.del).delete()}catch(err){showErr(err);dl.disabled=false}
+    try{if(SCRIPT_URL){showStatus("刪除中…");items=await api({action:"delete",id:dl.dataset.del});showStatus(`已刪除（${stamp()}）`);render()}else await db.collection("items").doc(dl.dataset.del).delete()}catch(err){if(SCRIPT_URL){showStatus("刪除失敗，請再試一次。");dl.disabled=false}else{showErr(err);dl.disabled=false}}
     return}
 
 });
@@ -316,17 +316,18 @@ function openForm(it){
 }
 const close=()=>{$("dlg").classList.remove("on");editing=null};
 $("cancel").onclick=close;$("dlg").addEventListener("click",e=>{if(e.target.id==="dlg")close()});
-$("addBtn").onclick=()=>{if(!db){showStatus("目前無法連線，請在 claude.ai 登入後開啟這個頁面。");return}openForm(null)};
+$("addBtn").onclick=()=>{if(!db&&!SCRIPT_URL){showStatus("目前無法連線，請在 claude.ai 登入後開啟這個頁面。");return}openForm(null)};
 $("form").addEventListener("submit",async e=>{
-  e.preventDefault();if(!db)return;
+  e.preventDefault();if(!db&&!SCRIPT_URL)return;
   const data={day:$("fDay").value,time:$("fTime").value,title:$("fTitle").value.trim(),place:$("fPlace").value.trim(),mode:$("fMode").value,note:$("fNote").value.trim(),ticket:$("fTicket").value.trim(),jp:$("fJp").value.trim(),at:Date.now()};
   if(!data.title||!data.time)return;
   $("save").disabled=true;
   try{
-    if(editing){data.by=editing.by||"";await db.collection("items").doc(editing.id).set(data)}
+    if(SCRIPT_URL){data.id=editing?editing.id:"n"+Date.now();showStatus("儲存中…");items=await api({action:"save",item:data});showStatus(`已儲存，大家都看得到了（${stamp()}）`);render()}
+    else if(editing){data.by=editing.by||"";await db.collection("items").doc(editing.id).set(data)}
     else{let id="";try{id=user?await user.id():""}catch(_){}data.by=id||"";await db.collection("items").add(data)}
     day=data.day;close();
-  }catch(err){showErr(err)}finally{$("save").disabled=false}
+  }catch(err){if(SCRIPT_URL)showStatus("儲存失敗，請檢查網路再試一次。");else showErr(err)}finally{$("save").disabled=false}
 });
 
 $("hotelBtn").onclick=()=>{if(!db){showStatus("目前無法連線，請在 claude.ai 登入後開啟這個頁面。");return}$("hName").value=hotel;$("hdlg").classList.add("on");setTimeout(()=>$("hName").focus(),50)};
@@ -335,6 +336,10 @@ $("hform").addEventListener("submit",async e=>{e.preventDefault();const v=$("hNa
   try{await db.doc("trip/settings").set({hotel:v});$("hdlg").classList.remove("on")}catch(err){showErr(err)}});
 document.addEventListener("keydown",e=>{if(e.key==="Escape"){close();$("drv").classList.remove("on");$("hdlg").classList.remove("on")}});
 
+const SCRIPT_URL="";
+async function api(body){const r=await fetch(SCRIPT_URL,body?{method:"POST",body:JSON.stringify(body)}:{cache:"no-store"});const j=await r.json();if(!j.ok)throw new Error(j.error||"fail");return j.items||[]}
+function stamp(){const d=new Date();return String(d.getHours()).padStart(2,"0")+":"+String(d.getMinutes()).padStart(2,"0")}
+async function loadLive(){try{let list=await api();if(!list.length){list=await api({action:"seed",items:JSON.parse($("snap").textContent)})}items=list;showStatus(`已同步最新行程（${stamp()}）・大家改的都會出現在這裡`);render();return true}catch(e){showStatus("暫時連不上，先顯示上次的版本，請稍後重新整理。");return false}}
 const SHEET_ID="1woNpm12FaIvTQLiYdrzPpE4TYu2TsKzj1xdzwks5VcU";
 const SHEET_EDIT="https://docs.google.com/spreadsheets/d/"+SHEET_ID+"/edit";
 function parseCSV(t){const rows=[];let row=[],f="",q=false;for(let i=0;i<t.length;i++){const c=t[i];if(q){if(c==='"'){if(t[i+1]==='"'){f+='"';i++}else q=false}else f+=c}else if(c==='"')q=true;else if(c===','){row.push(f);f=""}else if(c==='\n'){row.push(f);rows.push(row);row=[];f=""}else if(c!=='\r')f+=c}if(f||row.length){row.push(f);rows.push(row)}return rows}
@@ -360,8 +365,10 @@ function useSnap(){
   hotel="西九条駅";hotelLabel="日居・山 YAMA（西九條站步行 2 分）";canWrite=false;
   $("addBtn").hidden=true;$("hotelBtn").hidden=true;
   showStatus("正在讀取最新行程…");render();
-  loadSheet().then(ok=>{if(!ok)showStatus("暫時讀不到共用試算表，先顯示 11/24 的版本。")});
-  document.addEventListener("visibilitychange",()=>{if(!document.hidden)loadSheet()});
+  if(SCRIPT_URL){canWrite=true;$("addBtn").hidden=false;$("editSheet").hidden=true;loadLive();
+    setInterval(()=>{if(!document.hidden&&!$("dlg").classList.contains("on"))loadLive()},30000);
+    document.addEventListener("visibilitychange",()=>{if(!document.hidden)loadLive()});return}
+  showStatus("");
 }
 function showStatus(t){const s=$("status");if(!t){s.hidden=true;return}s.hidden=false;s.textContent=t}
 function showErr(err){
