@@ -25,6 +25,7 @@ button{cursor:pointer}
 .flights{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:10px;margin-top:16px}
 .fl{background:rgba(255,255,255,.12);border-radius:12px;padding:10px 14px;display:flex;gap:12px;align-items:center}
 .fl b{font-size:22px;white-space:nowrap}.fl small{display:block;opacity:.85}
+.editsheet{display:flex;align-items:center;justify-content:center;margin-top:14px;min-height:48px;border-radius:12px;background:#fff;color:#b02a17;font-weight:900;font-size:17px;text-decoration:none;padding:8px 14px;text-align:center}
 .hotel{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:14px;font-size:15px}
 .hotel button{background:#fff;color:var(--band);border:0;border-radius:999px;padding:6px 14px;font-weight:700;min-height:36px}
 .tabs{position:sticky;top:0;z-index:5;background:var(--bg);border-bottom:1px solid var(--line);display:flex;gap:6px;overflow-x:auto;padding:10px max(5vw,16px);scroll-snap-type:x mandatory}
@@ -131,6 +132,7 @@ body{font-size:18px;background:light-dark(#eef1f5,#111318)}
     <div class="fl"><b>15:25</b><div>去程 CI176 高雄 KHH → 關西 KIX T1<small>12/19 抵達 19:10（日本時間）</small></div></div>
     <div class="fl"><b>20:10</b><div>回程 CI177 關西 KIX T1 → 高雄 KHH<small>12/25 抵達 22:45（台灣時間）</small></div></div>
   </div>
+  <a class="editsheet" id="editSheet" href="https://docs.google.com/spreadsheets/d/1woNpm12FaIvTQLiYdrzPpE4TYu2TsKzj1xdzwks5VcU/edit" target="_blank" rel="noopener">要修改行程？點這裡打開共用試算表</a>
   <div class="hotel">住宿：<strong id="hotelName">—</strong><button id="hotelBtn" type="button">修改飯店</button></div>
 </header>
 <nav class="tabs" id="tabs" role="tablist"></nav>
@@ -333,11 +335,33 @@ $("hform").addEventListener("submit",async e=>{e.preventDefault();const v=$("hNa
   try{await db.doc("trip/settings").set({hotel:v});$("hdlg").classList.remove("on")}catch(err){showErr(err)}});
 document.addEventListener("keydown",e=>{if(e.key==="Escape"){close();$("drv").classList.remove("on");$("hdlg").classList.remove("on")}});
 
+const SHEET_ID="1woNpm12FaIvTQLiYdrzPpE4TYu2TsKzj1xdzwks5VcU";
+const SHEET_EDIT="https://docs.google.com/spreadsheets/d/"+SHEET_ID+"/edit";
+function parseCSV(t){const rows=[];let row=[],f="",q=false;for(let i=0;i<t.length;i++){const c=t[i];if(q){if(c==='"'){if(t[i+1]==='"'){f+='"';i++}else q=false}else f+=c}else if(c==='"')q=true;else if(c===','){row.push(f);f=""}else if(c==='\n'){row.push(f);rows.push(row);row=[];f=""}else if(c!=='\r')f+=c}if(f||row.length){row.push(f);rows.push(row)}return rows}
+const MODEMAP={"搭車":"transit","走路":"walking","包車":"charter","飛機":"flight","計程車":"driving","開車":"driving"};
+function rowsToItems(rows){
+  const hi=rows.findIndex(r=>r.some(c=>c.trim()==="日期")&&r.some(c=>c.trim()==="時間"));if(hi<0)return null;
+  const H=rows[hi].map(c=>c.trim()),col=n=>H.findIndex(h=>h===n||h.startsWith(n));
+  const cD=col("日期"),cT=col("時間"),cW=col("要做什麼"),cP=col("地點"),cM=H.findIndex(h=>h==="怎麼去"),cK=H.findIndex(h=>h.startsWith("怎麼去・")),cN=col("注意"),cJ=col("給司機看");
+  const g=(r,i)=>i<0?"":String(r[i]??"").trim();const out=[];
+  rows.slice(hi+1).forEach((r,k)=>{const dm=g(r,cD).match(/(\d{1,2})\s*\/\s*(\d{1,2})/);const title=g(r,cW);if(!dm||!title)return;
+    let tm=g(r,cT).match(/(\d{1,2}):(\d{2})/);tm=tm?tm[1].padStart(2,"0")+":"+tm[2]:"";
+    let pl=g(r,cP);if(pl.startsWith("民宿")||pl==="飯店")pl="飯店";
+    out.push({id:"g"+k,day:`2026-${dm[1].padStart(2,"0")}-${dm[2].padStart(2,"0")}`,time:tm,title,place:pl,mode:MODEMAP[g(r,cM)]||"none",ticket:g(r,cK),note:g(r,cN),jp:g(r,cJ)})});
+  return out;
+}
+async function loadSheet(){
+  const urls=["https://docs.google.com/spreadsheets/d/"+SHEET_ID+"/gviz/tq?tqx=out:csv&headers=0&t="+Date.now(),"https://docs.google.com/spreadsheets/d/"+SHEET_ID+"/export?format=csv&t="+Date.now()];
+  for(const u of urls){try{const r=await fetch(u,{cache:"no-store"});if(!r.ok)continue;const list=rowsToItems(parseCSV(await r.text()));if(list&&list.length){items=list;const d=new Date();showStatus(`已讀取最新共用行程（${String(d.getHours()).padStart(2,"0")}:${String(d.getMinutes()).padStart(2,"0")} 更新）`);render();return true}}catch(e){}}
+  return false;
+}
 function useSnap(){
   try{items=JSON.parse($("snap").textContent)}catch(e){items=[]}
   hotel="西九条駅";hotelLabel="日居・山 YAMA（西九條站步行 2 分）";canWrite=false;
   $("addBtn").hidden=true;$("hotelBtn").hidden=true;
-  showStatus(window.claude?"目前是「只能看」模式。要新增或修改行程，請行程負責人修改。":"");render();
+  showStatus("正在讀取最新行程…");render();
+  loadSheet().then(ok=>{if(!ok)showStatus("暫時讀不到共用試算表，先顯示 11/24 的版本。")});
+  document.addEventListener("visibilitychange",()=>{if(!document.hidden)loadSheet()});
 }
 function showStatus(t){const s=$("status");if(!t){s.hidden=true;return}s.hidden=false;s.textContent=t}
 function showErr(err){
@@ -348,6 +372,7 @@ function showErr(err){
 
 fillDays();render();
 (async()=>{
+  useSnap();return;
   try{db=await claude.use("db");user=await claude.use("user")}catch(e){db=null}
   if(!db){useSnap();return}
   try{const w=await user?.can("data.write");if(w===false){canWrite=false;$("addBtn").disabled=true}}catch(_){}
