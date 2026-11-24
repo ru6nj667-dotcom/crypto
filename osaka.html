@@ -1,0 +1,365 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>大阪旅行行程</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700;900&display=swap" rel="stylesheet">
+<style>
+/* VOICE: 朋友間共用的旅行手帳，輕鬆、清楚、手機一手可操作
+   IDEA: 日本車站的時刻表看板＋鳥居朱紅
+   PICTURE: 當天的行程表本身：大字時間懸掛在左，站與站之間是「怎麼去」的連接線
+   COLOUR and TYPE: 朱紅 #c8321f 主色、白底黑字、靛藍 #24338a 做路線連結；Noto Sans TC
+   LAYOUT: 頂部朱紅帶（航班）→ 日期標籤橫向滑動 → 當天時刻表 → 底部固定「新增」 */
+:root{color-scheme:light dark;--bg:light-dark(#ffffff,#121214);--ink:light-dark(#18181b,#ececee);--mute:light-dark(#6b6b72,#9a9aa3);--line:light-dark(#e6e4e0,#2a2a2f);--soft:light-dark(#f5f3ef,#1c1c20);--red:light-dark(#c8321f,#d9503c);--band:light-dark(#c8321f,#7d2014);--blue:light-dark(#24338a,#8fa2ff)}
+:root[data-theme=light]{color-scheme:light}:root[data-theme=dark]{color-scheme:dark}
+*{box-sizing:border-box;min-width:0}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.55 "Noto Sans TC",system-ui,sans-serif;overflow-x:clip;padding-bottom:120px}
+button,input,select,textarea{font:inherit;color:inherit}
+button{cursor:pointer}
+:focus-visible{outline:3px solid var(--blue);outline-offset:2px}
+.top{background:var(--band);color:#fff;padding:22px max(5vw,16px) 18px}
+.top h1{margin:0;font-size:clamp(30px,7vw,44px);line-height:1.05;font-weight:900;text-wrap:balance}
+.top .sub{opacity:.85;margin-top:4px}
+.flights{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:10px;margin-top:16px}
+.fl{background:rgba(255,255,255,.12);border-radius:12px;padding:10px 14px;display:flex;gap:12px;align-items:center}
+.fl b{font-size:22px;white-space:nowrap}.fl small{display:block;opacity:.85}
+.hotel{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:14px;font-size:15px}
+.hotel button{background:#fff;color:var(--band);border:0;border-radius:999px;padding:6px 14px;font-weight:700;min-height:36px}
+.tabs{position:sticky;top:0;z-index:5;background:var(--bg);border-bottom:1px solid var(--line);display:flex;gap:6px;overflow-x:auto;padding:10px max(5vw,16px);scroll-snap-type:x mandatory}
+.tabs button{flex:none;scroll-snap-align:start;border:1px solid var(--line);background:var(--soft);border-radius:12px;padding:6px 12px;min-width:64px;min-height:52px;text-align:center;line-height:1.2}
+.tabs button span{display:block;font-size:13px;color:var(--mute)}
+.tabs button[aria-selected=true]{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+.tabs button[aria-selected=true] span{color:inherit;opacity:.75}
+main{max-width:760px;margin:0 auto;padding:16px max(4vw,14px)}
+.dayh{display:flex;justify-content:space-between;align-items:baseline;gap:10px;margin:6px 0 12px}
+.dayh h2{margin:0;font-size:24px}
+.note{color:var(--mute);font-size:14px}
+.status{background:var(--soft);border-radius:10px;padding:10px 14px;margin-bottom:12px;font-size:14px}
+.item{display:grid;grid-template-columns:64px minmax(0,1fr);gap:12px}
+.t{font-size:22px;font-weight:900;text-align:right;white-space:nowrap;padding-top:10px;font-variant-numeric:tabular-nums}
+.card{border:1px solid var(--line);border-radius:14px;padding:12px 14px;background:var(--bg);width:100%;text-align:left}
+.card.flight{border-color:var(--red);border-width:2px}
+.card h3{margin:0;font-size:17px;line-height:1.35}
+.place{color:var(--mute);font-size:14px;margin-top:2px}
+.chip{display:inline-block;font-size:12px;border-radius:999px;padding:1px 9px;background:var(--soft);color:var(--mute);margin-left:6px;vertical-align:2px;white-space:nowrap}
+.flight .chip{background:var(--red);color:#fff}
+.more{display:none;margin-top:10px;border-top:1px dashed var(--line);padding-top:10px}
+.open .more{display:block}
+.more p{margin:0 0 10px;white-space:pre-wrap;font-size:15px}
+.acts{display:flex;flex-wrap:wrap;gap:8px}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:44px;padding:8px 14px;border-radius:10px;border:1px solid var(--line);background:var(--soft);text-decoration:none;color:var(--ink);font-size:15px;font-weight:500}
+.btn.go{background:var(--blue);border-color:var(--blue);color:#fff}
+.btn.red{color:var(--red)}
+.btn svg{width:18px;height:18px;flex:none}
+.link{display:grid;grid-template-columns:64px minmax(0,1fr);gap:12px;margin:2px 0}
+.link .rail{justify-self:end;width:2px;background:repeating-linear-gradient(var(--line) 0 6px,transparent 6px 10px);margin-right:20px}
+.link svg{width:20px;height:20px;flex:none}
+.link .go-col{padding:4px 0 10px}
+.link .tk{margin-top:2px}
+.link a{display:inline-flex;align-items:center;gap:6px;color:var(--blue);font-size:14px;font-weight:500;text-decoration:none;padding:10px 0;min-height:44px}
+.by{font-size:12px;color:var(--mute);margin-top:8px}
+.empty{text-align:center;color:var(--mute);padding:40px 10px}
+.fab{position:fixed;right:max(16px,4vw);bottom:max(16px,env(safe-area-inset-bottom));background:var(--red);color:#fff;border:0;border-radius:999px;padding:12px 20px;font-size:16px;font-weight:700;box-shadow:0 6px 20px rgba(0,0,0,.25);z-index:10}
+.fab[disabled]{opacity:.5}
+.dlg{position:fixed;inset:0;background:rgba(0,0,0,.5);display:none;align-items:flex-end;justify-content:center;z-index:20}
+.dlg.on{display:flex}
+.sheet{background:var(--bg);width:100%;max-width:560px;max-height:92vh;overflow:auto;border-radius:18px 18px 0 0;padding:18px 18px calc(18px + env(safe-area-inset-bottom))}
+@media(min-width:600px){.dlg{align-items:center}.sheet{border-radius:18px}}
+.sheet h3{margin:0 0 12px;font-size:20px}
+label{display:block;font-size:14px;color:var(--mute);margin:10px 0 4px}
+input,select,textarea{width:100%;font-size:16px;border:1px solid var(--line);border-radius:10px;padding:10px 12px;background:var(--soft);min-height:44px}
+textarea{min-height:80px;resize:vertical}
+.row2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.sheet .acts{margin-top:16px;justify-content:flex-end}
+.hint{font-size:12px;color:var(--mute);margin-top:4px}
+.tk{margin-top:8px;background:light-dark(#fff6e5,#2a2213);border:1px dashed light-dark(#d9a441,#8a6a2a);border-radius:10px;padding:8px 10px;font-size:14px;white-space:pre-wrap;line-height:1.5}
+.tk b{display:block;font-size:12px;color:light-dark(#8a5a00,#e0b866);font-weight:700;margin-bottom:2px}
+.charter{background:light-dark(#eef1ff,#1a1e33);border:1px solid light-dark(#c9d0ff,#2f3762);border-radius:14px;padding:12px 14px;margin-bottom:14px;display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap}
+.charter strong{font-size:17px}
+.guide{border:1px solid var(--line);border-radius:14px;margin-bottom:14px;background:var(--soft)}
+.guide summary{padding:12px 14px;font-weight:700;cursor:pointer;min-height:44px}
+.guide div{padding:0 14px 12px;font-size:15px}.guide ul{margin:6px 0;padding-left:20px}.guide li{margin-bottom:4px}
+.drv{position:fixed;inset:0;background:#fff;color:#111;z-index:30;display:none;overflow:auto;padding:16px max(5vw,16px) 40px}
+.drv.on{display:block}
+.drv .bar{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:12px}
+.drv .bar .btn{background:#111;color:#fff;border-color:#111}
+.drv h2{margin:0 0 6px;font-size:22px}
+.drv .hello{font-size:18px;margin:0 0 16px;line-height:1.5}
+.drv ol{list-style:none;margin:0;padding:0}
+.drv li{border-top:2px solid #eee;padding:14px 0}
+.drv .tm{font-size:24px;color:#c8321f;font-weight:900}
+.drv .big{font-size:clamp(24px,6.5vw,34px);font-weight:900;line-height:1.3;white-space:pre-wrap}
+.drv .zh{font-size:14px;color:#666;margin-top:4px}
+
+/* 長輩友善：大字、一站一框 */
+body{font-size:18px;background:light-dark(#eef1f5,#111318)}
+:root{--card:light-dark(#ffffff,#1b1e24)}
+.stop{background:var(--card);border:1px solid var(--line);border-left:8px solid var(--mc,#8a8a93);border-radius:16px;padding:14px 16px 16px;box-shadow:0 2px 10px light-dark(rgba(20,30,50,.08),rgba(0,0,0,.4))}
+.m-transit{--mc:#2457c5}.m-walking{--mc:#1f8a4c}.m-charter{--mc:#7a3fc0}.m-flight{--mc:var(--red)}.m-driving{--mc:#b06a00}.m-none{--mc:#8a8a93}
+.sh{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.num{background:var(--mc,#8a8a93);color:#fff;font-weight:700;font-size:15px;border-radius:999px;padding:3px 12px;white-space:nowrap}
+.sh .tm{font-size:28px;font-weight:900;font-variant-numeric:tabular-nums;line-height:1}
+.sh .chip{margin-left:auto;font-size:14px;padding:3px 12px;background:var(--soft);color:var(--ink);border:1px solid var(--line)}
+.stop h3{margin:10px 0 2px;font-size:22px;line-height:1.35}
+.stop .place{font-size:16px;margin-top:2px}
+.how{margin-top:12px;border:2px solid var(--mc,#8a8a93);border-radius:12px;padding:12px;background:light-dark(#f7f9fd,#151922)}
+.how-h{font-weight:900;font-size:17px;color:var(--mc);margin-bottom:6px}
+.m-transit .how-h{color:light-dark(#2457c5,#8fa8ff)}.m-walking .how-h{color:light-dark(#1f8a4c,#6fd39a)}.m-charter .how-h{color:light-dark(#7a3fc0,#c7a2ff)}
+.from{display:flex;gap:8px;align-items:flex-start;font-size:17px;margin-bottom:8px}
+.from svg{width:22px;height:22px;flex:none;margin-top:3px;color:var(--mc)}
+.tkt{background:light-dark(#fff7e0,#2a2213);border:1px dashed light-dark(#c9961f,#8a6a2a);border-radius:10px;padding:10px 12px;font-size:17px;line-height:1.6;white-space:pre-wrap}
+.tkt-h{font-size:14px;font-weight:900;color:light-dark(#8a5a00,#e0b866);margin-bottom:2px}
+.btn.go{background:light-dark(#24338a,#3354d1);border-color:light-dark(#24338a,#3354d1);color:#fff}
+.btn.wide{width:100%;margin-top:10px;font-size:17px;font-weight:700}
+.nt{margin-top:12px;font-size:16px;white-space:pre-wrap;line-height:1.6}
+.nt b{display:inline-block;background:var(--soft);border-radius:6px;padding:0 8px;margin-right:8px;font-size:14px}
+.stop .acts{margin-top:12px}
+.btn.sm{min-height:44px;font-size:14px;color:var(--mute)}
+.arrow{text-align:center;color:var(--mute);font-size:14px;line-height:1;padding:8px 0}
+.dayh h2{font-size:26px}
+.tabs button{font-size:18px}
+@media(prefers-reduced-motion:no-preference){.card{transition:border-color .2s}}
+</style>
+</head>
+<body>
+<header class="top">
+  <h1>大阪＋京都＋伊根 7天6夜</h1>
+  <div class="sub">2026 年 12 月 19 日（六）– 12 月 25 日（五）・7–8 人</div>
+  <div class="flights">
+    <div class="fl"><b>15:25</b><div>去程 CI176 高雄 KHH → 關西 KIX T1<small>12/19 抵達 19:10（日本時間）</small></div></div>
+    <div class="fl"><b>20:10</b><div>回程 CI177 關西 KIX T1 → 高雄 KHH<small>12/25 抵達 22:45（台灣時間）</small></div></div>
+  </div>
+  <div class="hotel">住宿：<strong id="hotelName">—</strong><button id="hotelBtn" type="button">修改飯店</button></div>
+</header>
+<nav class="tabs" id="tabs" role="tablist"></nav>
+<main>
+  <details class="guide">
+    <summary>交通卡 ICOCA 怎麼買、要儲多少？</summary>
+    <div>
+      <ul>
+        <li><b>iPhone：</b>打開「錢包」App → 右上角「＋」→「交通卡」→ 選 ICOCA。用台灣信用卡儲值，第一次最少 ¥1,000。出發前在台灣就能弄好。</li>
+        <li><b>Android 或想要實體卡：</b>到關西機場 JR 關西空港站的售票機或綠色窗口買實體 ICOCA，之後在任何車站售票機用現金儲值。</li>
+        <li><b>一人一張</b>，不能兩個人刷同一張。電車、地鐵、巴士、便利商店都能刷。</li>
+        <li><b>建議每人先儲 ¥10,000</b>：自己搭車的 5 天，車資加起來每人大約 ¥9,000（包車的 12/22、12/24 不用）。不夠時在車站售票機或便利商店加值。</li>
+        <li>票價是查詢時的大約金額，點路線打開 Google 地圖會顯示當天實際票價。</li>
+      </ul>
+    </div>
+  </details>
+  <div class="status" id="status">正在載入大家的行程…</div>
+  <div class="dayh"><h2 id="dayTitle"></h2><span class="note">由上往下照順序走</span></div>
+  <div id="list"></div>
+</main>
+<button class="fab" id="addBtn" type="button">＋ 新增行程</button>
+
+<div class="dlg" id="dlg" role="dialog" aria-modal="true" aria-labelledby="dlgT">
+  <form class="sheet" id="form">
+    <h3 id="dlgT">新增行程</h3>
+    <div class="row2">
+      <div><label for="fDay">日期</label><select id="fDay"></select></div>
+      <div><label for="fTime">時間</label><input id="fTime" type="time" required></div>
+    </div>
+    <label for="fTitle">要做什麼</label>
+    <input id="fTitle" required maxlength="80" placeholder="例如：吃一蘭拉麵">
+    <label for="fPlace">地點（用來在 Google 地圖找路）</label>
+    <input id="fPlace" maxlength="120" placeholder="例如：道頓堀、大阪城天守閣">
+    <div class="hint">輸入「飯店」會自動帶入住宿地址。日文名稱找得最準。</div>
+    <label for="fMode">怎麼過去（從上一站）</label>
+    <select id="fMode">
+      <option value="transit">搭電車／公車</option>
+      <option value="walking">走路</option>
+      <option value="charter">包車</option>
+      <option value="driving">計程車／開車</option>
+      <option value="flight">飛機（不導航）</option>
+      <option value="none">不用導航</option>
+    </select>
+    <label for="fNote">備註</label>
+    <textarea id="fNote" maxlength="600" placeholder="車站出口、要買的東西、預約時間…"></textarea>
+    <label for="fTicket">車票：搭什麼、在哪買、哪站到哪站、多少錢</label>
+    <textarea id="fTicket" maxlength="600" placeholder="例如：JR 環狀線 西九條 → 大阪，刷 ICOCA，約 ¥170"></textarea>
+    <label for="fJp">給司機看的日文（包車用）</label>
+    <textarea id="fJp" maxlength="400" placeholder="例如：伏見稲荷大社&#10;京都市伏見区深草藪之内町68"></textarea>
+    <div class="acts">
+      <button type="button" class="btn" id="cancel">取消</button>
+      <button type="submit" class="btn go" id="save">儲存</button>
+    </div>
+  </form>
+</div>
+
+<div class="dlg" id="hdlg" role="dialog" aria-modal="true" aria-labelledby="hT">
+  <form class="sheet" id="hform">
+    <h3 id="hT">住宿飯店</h3>
+    <label for="hName">飯店名稱或地址</label>
+    <input id="hName" maxlength="120" required placeholder="例如：Hotel Monterey Osaka">
+    <div class="hint">每天第一個行程會從這裡出發計算路線。</div>
+    <div class="acts">
+      <button type="button" class="btn" id="hcancel">取消</button>
+      <button type="submit" class="btn go">儲存</button>
+    </div>
+  </form>
+</div>
+
+<div class="drv" id="drv" role="dialog" aria-modal="true" aria-label="給司機看">
+  <div class="bar"><span>給司機看・運転手さんへ</span><button type="button" class="btn" id="drvClose">關閉</button></div>
+  <div id="drvBody"></div>
+</div>
+<script type="application/json" id="snap">[{"id": "s0", "day": "2026-12-19", "time": "12:30", "title": "出發去高雄機場", "place": "", "mode": "none", "ticket": "高雄捷運紅線 → 高雄國際機場站，刷一卡通／悠遊卡", "note": "出站直通國際線航廈", "jp": ""}, {"id": "s1", "day": "2026-12-19", "time": "13:15", "title": "高雄機場 國際線報到", "place": "高雄國際機場 國際線航廈", "mode": "transit", "ticket": "捷運出站直通國際線航廈，走路即到", "note": "中華航空櫃台報到、托運行李", "jp": ""}, {"id": "s2", "day": "2026-12-19", "time": "15:25", "title": "CI176 起飛 高雄 → 關西", "place": "", "mode": "flight", "ticket": "", "note": "中華航空 CI176・經濟艙・A321neo・含餐點", "jp": ""}, {"id": "s3", "day": "2026-12-19", "time": "19:10", "title": "抵達關西機場 T1・入境領行李", "place": "関西国際空港 第1ターミナル", "mode": "flight", "ticket": "", "note": "日本時間。出關後到 2 樓走天橋到「關西機場站」", "jp": ""}, {"id": "s4", "day": "2026-12-19", "time": "20:30", "title": "前往民宿（西九條）", "place": "飯店", "mode": "transit", "ticket": "JR 關空快速：關西機場站 → 西九條站（不用換車，約 70 分）\n在哪買：關西機場 JR 站，直接刷 ICOCA 進站（實體卡可在這裡買）\n約 ¥1,180／人", "note": "", "jp": ""}, {"id": "s5", "day": "2026-12-19", "time": "22:00", "title": "宵夜／便利商店採買", "place": "西九条駅 コンビニ", "mode": "walking", "ticket": "", "note": "民宿附近有 7-11、FamilyMart、Lawson、LIFE 超市", "jp": ""}, {"id": "s6", "day": "2026-12-20", "time": "09:00", "title": "勝尾寺（達摩勝地）", "place": "勝尾寺", "mode": "transit", "ticket": "① JR 環狀線 西九條 → 大阪（2 站）約 ¥170\n② 走到地鐵「梅田站」搭御堂筋線（直通北大阪急行）→ 箕面萱野站，約 ¥500\n③ 箕面萱野站 8 號乘車處，阪急巴士 30 系統 → 勝尾寺（後門上車）約 ¥500\n全程刷 ICOCA", "note": "巴士很多人排隊，提早到", "jp": ""}, {"id": "s7", "day": "2026-12-20", "time": "11:30", "title": "回梅田・午餐", "place": "大阪駅", "mode": "transit", "ticket": "阪急巴士 勝尾寺 → 箕面萱野站，再搭御堂筋線 → 梅田站\n約 ¥1,000（巴士＋地鐵），刷 ICOCA", "note": "午餐自理", "jp": ""}, {"id": "s8", "day": "2026-12-20", "time": "13:00", "title": "梅田購物（LUCUA／Grand Front）", "place": "グランフロント大阪", "mode": "walking", "ticket": "", "note": "", "jp": ""}, {"id": "s9", "day": "2026-12-20", "time": "16:00", "title": "南海部品 本店（機車用品）買東西", "place": "南海部品 本店", "mode": "walking", "ticket": "從梅田（Grand Front）走路約 15 分", "note": "營業時間出發前先在 Google 地圖確認", "jp": ""}, {"id": "s10", "day": "2026-12-20", "time": "18:30", "title": "A5 和牛燒肉 吃到飽＋酒喝到飽", "place": "梅田 焼肉 食べ放題", "mode": "walking", "ticket": "", "note": "店家待定，訂好後改成店名", "jp": ""}, {"id": "s11", "day": "2026-12-20", "time": "21:00", "title": "回民宿", "place": "飯店", "mode": "transit", "ticket": "JR 環狀線 大阪 → 西九條（2 站）約 ¥170，刷 ICOCA", "note": "", "jp": ""}, {"id": "s12", "day": "2026-12-21", "time": "09:15", "title": "京都・下鴨神社", "place": "下鴨神社", "mode": "transit", "ticket": "① JR 環狀線 西九條 → 大阪（2 站）約 ¥170\n② 走到阪急「大阪梅田站」，搭阪急京都線 → 京都河原町站，約 50 分，¥410\n③ 四條河原町搭市巴士 4 或 205 系統 → 下鴨神社前，¥230\n全程刷 ICOCA，合計約 ¥810", "note": "08:00 從民宿出發", "jp": ""}, {"id": "s13", "day": "2026-12-21", "time": "11:15", "title": "和服體驗（奈奈屋 Nanaya）", "place": "着物レンタル 奈々屋 京都", "mode": "transit", "ticket": "下鴨神社前搭市巴士 4 或 205 系統回四條河原町 ¥230，再走到和服店，刷 ICOCA", "note": "要先預約。和服店通常 17:30 前要歸還", "jp": ""}, {"id": "s14", "day": "2026-12-21", "time": "12:30", "title": "八坂塔周邊拍照", "place": "八坂の塔", "mode": "walking", "ticket": "", "note": "", "jp": ""}, {"id": "s15", "day": "2026-12-21", "time": "13:00", "title": "二年坂・三年坂 散策", "place": "二年坂", "mode": "walking", "ticket": "", "note": "", "jp": ""}, {"id": "s16", "day": "2026-12-21", "time": "14:00", "title": "清水寺", "place": "清水寺", "mode": "walking", "ticket": "", "note": "", "jp": ""}, {"id": "s17", "day": "2026-12-21", "time": "15:30", "title": "八坂神社", "place": "八坂神社", "mode": "walking", "ticket": "", "note": "", "jp": ""}, {"id": "s18", "day": "2026-12-21", "time": "16:15", "title": "祇園 花見小路", "place": "花見小路", "mode": "walking", "ticket": "", "note": "逛完走回和服店還衣服", "jp": ""}, {"id": "s19", "day": "2026-12-21", "time": "18:00", "title": "搭車回大阪民宿", "place": "飯店", "mode": "transit", "ticket": "① 走到阪急「京都河原町站」→ 大阪梅田，¥410\n② JR 環狀線 大阪 → 西九條，約 ¥170\n刷 ICOCA，合計約 ¥580", "note": "還完和服再出發", "jp": ""}, {"id": "s20", "day": "2026-12-22", "time": "09:00", "title": "抵達環球影城 USJ", "place": "ユニバーサル・スタジオ・ジャパン", "mode": "transit", "ticket": "JR 夢咲線 西九條站 → Universal City 站，2 站約 5 分\n西九條站直接刷 ICOCA 進站，¥180／人，出站走 5 分到正門", "note": "門票先在 USJ 官網買好（指定日期）", "jp": ""}, {"id": "s21", "day": "2026-12-22", "time": "09:30", "title": "USJ 踩點＋少量設施", "place": "", "mode": "none", "ticket": "", "note": "重點區：超級任天堂世界、哈利波特魔法世界。午餐園內自理", "jp": ""}, {"id": "s22", "day": "2026-12-22", "time": "15:30", "title": "搭車回民宿休息", "place": "飯店", "mode": "transit", "ticket": "JR 夢咲線 Universal City 站 → 西九條站，2 站約 5 分，刷 ICOCA，¥180／人", "note": "", "jp": ""}, {"id": "s23", "day": "2026-12-22", "time": "17:30", "title": "大阪聖誕燈飾（中之島／御堂筋）", "place": "中之島公園", "mode": "transit", "ticket": "JR 環狀線 西九條 → 大阪（2 站）約 ¥170，再走約 15 分到中之島\n不想走：梅田站轉地鐵御堂筋線 → 淀屋橋站（1 站）¥190", "note": "", "jp": ""}, {"id": "s24", "day": "2026-12-22", "time": "20:00", "title": "螃蟹鍋晚餐", "place": "かに道楽 道頓堀本店", "mode": "transit", "ticket": "地鐵御堂筋線 淀屋橋 → なんば（不用換車）約 ¥240，出站走 5 分到道頓堀，刷 ICOCA", "note": "建議先訂位", "jp": ""}, {"id": "s25", "day": "2026-12-22", "time": "22:00", "title": "回民宿", "place": "飯店", "mode": "transit", "ticket": "阪神なんば線 大阪難波站 → 西九條（直達約 9 分）¥220，刷 ICOCA", "note": "", "jp": ""}, {"id": "s26", "day": "2026-12-23", "time": "09:00", "title": "大阪城", "place": "大阪城天守閣", "mode": "transit", "ticket": "JR 環狀線 西九條 → 大阪城公園站（不用換車）約 ¥200，刷 ICOCA", "note": "", "jp": ""}, {"id": "s27", "day": "2026-12-23", "time": "11:15", "title": "しゃぶ長 壽喜燒／涮涮鍋", "place": "しゃぶ長", "mode": "transit", "ticket": "依店家位置看 Google 地圖，地鐵一段約 ¥190–240，刷 ICOCA", "note": "午餐。分店請確認", "jp": ""}, {"id": "s28", "day": "2026-12-23", "time": "13:00", "title": "心齋橋購物（心齋橋筋／PARCO／大丸）", "place": "心斎橋筋商店街", "mode": "transit", "ticket": "地鐵到「心齋橋站」約 ¥190–240，刷 ICOCA", "note": "", "jp": ""}, {"id": "s29", "day": "2026-12-23", "time": "17:30", "title": "道頓堀", "place": "道頓堀", "mode": "walking", "ticket": "", "note": "", "jp": ""}, {"id": "s30", "day": "2026-12-23", "time": "19:00", "title": "一蘭拉麵 晚餐", "place": "一蘭 道頓堀店本館", "mode": "walking", "ticket": "", "note": "", "jp": ""}, {"id": "s31", "day": "2026-12-23", "time": "20:30", "title": "回民宿", "place": "飯店", "mode": "transit", "ticket": "阪神なんば線 大阪難波站 → 西九條（直達約 9 分）¥220，刷 ICOCA", "note": "", "jp": ""}, {"id": "s32", "day": "2026-12-24", "time": "07:30", "title": "包車到民宿接（去伊根）", "place": "", "mode": "charter", "ticket": "包車全天，不用買車票。司機聯絡方式：", "note": "大阪到伊根單程約 2.5–3 小時。12 月可能下雪，確認有雪胎。7–8 人要大台車或兩台", "jp": "日居・山 YAMA（西九条駅 徒歩2分）でお迎えをお願いします"}, {"id": "s33", "day": "2026-12-24", "time": "10:00", "title": "天橋立（天橋立ビューランド 看景）", "place": "天橋立ビューランド", "mode": "charter", "ticket": "包車。上山的纜車／吊椅票在山腳售票口現場買", "note": "日本三景之一，順路", "jp": "天橋立ビューランド（京都府宮津市文珠）"}, {"id": "s34", "day": "2026-12-24", "time": "12:00", "title": "伊根 午餐（道の駅 舟屋の里伊根）", "place": "道の駅 舟屋の里伊根", "mode": "charter", "ticket": "包車", "note": "從天橋立開車約 30–40 分", "jp": "道の駅 舟屋の里伊根（京都府与謝郡伊根町）"}, {"id": "s35", "day": "2026-12-24", "time": "13:15", "title": "伊根灣遊覽船（從海上看舟屋）", "place": "伊根湾めぐり遊覧船", "mode": "charter", "ticket": "船票在「日出」乘船處現場買，約 ¥1,200／人，海鷗餵料約 ¥100", "note": "約 25 分鐘繞伊根灣一圈", "jp": "伊根湾めぐり遊覧船 日出乗船場（京都府与謝郡伊根町日出11）"}, {"id": "s36", "day": "2026-12-24", "time": "14:00", "title": "舟屋散步・舟屋の里公園看景", "place": "舟屋の里公園", "mode": "charter", "ticket": "包車", "note": "從高處俯瞰整個伊根灣", "jp": "舟屋の里公園（伊根町）"}, {"id": "s37", "day": "2026-12-24", "time": "15:00", "title": "包車回大阪民宿", "place": "飯店", "mode": "charter", "ticket": "包車", "note": "約 18:00 到民宿（看路況）", "jp": "日居・山 YAMA（西九条駅 徒歩2分）までお願いします"}, {"id": "s38", "day": "2026-12-24", "time": "18:30", "title": "平安夜晚餐", "place": "", "mode": "none", "ticket": "", "note": "在民宿附近吃，或請司機順路載去餐廳", "jp": ""}, {"id": "s39", "day": "2026-12-25", "time": "09:30", "title": "木津市場 海鮮早午餐", "place": "木津卸売市場", "mode": "transit", "ticket": "JR 環狀線 西九條 → 今宮站 約 ¥200，出站走約 10 分到木津市場，刷 ICOCA", "note": "很多店 11:00 前後就開始收，早點去", "jp": ""}, {"id": "s40", "day": "2026-12-25", "time": "11:00", "title": "通天閣／新世界", "place": "通天閣", "mode": "walking", "ticket": "走路約 15 分；或地鐵 大國町 → 動物園前（1 站）¥190", "note": "", "jp": ""}, {"id": "s41", "day": "2026-12-25", "time": "12:15", "title": "拉麵 なにわ新風 總本店", "place": "拉麺 なにわ新風 総本店", "mode": "walking", "ticket": "從通天閣走路約 5–10 分", "note": "", "jp": ""}, {"id": "s42", "day": "2026-12-25", "time": "13:30", "title": "難波購物 最後補貨", "place": "なんばパークス", "mode": "walking", "ticket": "走路約 20 分；或地鐵堺筋線 惠美須町 → 日本橋 ¥190", "note": "", "jp": ""}, {"id": "s43", "day": "2026-12-25", "time": "15:00", "title": "回民宿拿行李", "place": "飯店", "mode": "transit", "ticket": "阪神なんば線 大阪難波站 → 西九條 ¥220，刷 ICOCA", "note": "", "jp": ""}, {"id": "s44", "day": "2026-12-25", "time": "16:00", "title": "前往關西機場", "place": "関西国際空港 第1ターミナル", "mode": "transit", "ticket": "JR 關空快速 西九條 → 關西機場（不用換車，約 70 分）約 ¥1,180，刷 ICOCA\n注意：要坐開往「関西空港」的車廂，上車前看月台指示", "note": "", "jp": ""}, {"id": "s45", "day": "2026-12-25", "time": "17:30", "title": "關西機場 T1 報到", "place": "", "mode": "none", "ticket": "", "note": "中華航空櫃台。晚餐機場自理", "jp": ""}, {"id": "s46", "day": "2026-12-25", "time": "20:10", "title": "CI177 起飛 關西 → 高雄", "place": "", "mode": "flight", "ticket": "", "note": "中華航空 CI177・經濟艙・A321neo・含餐點", "jp": ""}, {"id": "s47", "day": "2026-12-25", "time": "22:45", "title": "抵達高雄機場", "place": "", "mode": "flight", "ticket": "", "note": "台灣時間", "jp": ""}]</script>
+<script>
+{
+const DAYS=[["2026-12-19","12/19","六"],["2026-12-20","12/20","日"],["2026-12-21","12/21","一"],["2026-12-22","12/22","二"],["2026-12-23","12/23","三"],["2026-12-24","12/24","四"],["2026-12-25","12/25","五"]];
+const MODE={transit:"搭車",walking:"走路",charter:"包車",driving:"計程車",flight:"航班",none:""};
+const ICON={walking:'<svg viewBox="0 0 24 24" fill="currentColor"><circle cx="13" cy="4" r="2"/><path d="M10 8l-3 3 1.4 1.4L10 10.8V22h2v-6l2 2v4h2v-5l-2.5-2.5.6-3.2A6 6 0 0 0 18 12v-2a4 4 0 0 1-3.3-1.7L13.6 7a2 2 0 0 0-1.7-1H11z"/></svg>',
+transit:'<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C8 2 4 2.5 4 6v9.5A3.5 3.5 0 0 0 7.5 19L6 20.5v.5h2l2-2h4l2 2h2v-.5L16.5 19a3.5 3.5 0 0 0 3.5-3.5V6c0-3.5-4-4-8-4zM7.5 17a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3zM11 10H6V6h5zm2 0V6h5v4zm3.5 7a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3z"/></svg>',
+driving:'<svg viewBox="0 0 24 24" fill="currentColor"><path d="M18.9 6a1.5 1.5 0 0 0-1.4-1h-11a1.5 1.5 0 0 0-1.4 1L3 12v8a1 1 0 0 0 1 1h1a1 1 0 0 0 1-1v-1h12v1a1 1 0 0 0 1 1h1a1 1 0 0 0 1-1v-8zM6.5 16a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3zm11 0a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3zM5 11l1.5-4.5h11L19 11z"/></svg>',
+pin:'<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2a7 7 0 0 0-7 7c0 5.3 7 13 7 13s7-7.7 7-13a7 7 0 0 0-7-7zm0 9.5a2.5 2.5 0 1 1 0-5 2.5 2.5 0 0 1 0 5z"/></svg>',
+me:'<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8zm9 3h-2.1A7 7 0 0 0 13 5.1V3h-2v2.1A7 7 0 0 0 5.1 11H3v2h2.1a7 7 0 0 0 5.9 5.9V21h2v-2.1a7 7 0 0 0 5.9-5.9H21z"/></svg>'};
+const esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const $=id=>document.getElementById(id);
+let db=null,user=null,items=[],hotel="",hotelLabel="",names={},canWrite=true,editing=null,openId=null;
+let day=(()=>{try{return localStorage.getItem("osakaDay")}catch(e){return null}})()||DAYS[0][0];
+if(!DAYS.some(d=>d[0]===day))day=DAYS[0][0];
+
+ICON.charter=ICON.driving;
+const resolve=p=>{p=(p||"").trim();return p==="飯店"?(hotel||""):p};
+const dirURL=(from,to,mode)=>{const m=mode==="charter"?"driving":["transit","walking","driving"].includes(mode)?mode:"transit";let u="https://www.google.com/maps/dir/?api=1&destination="+encodeURIComponent(to)+"&travelmode="+m;if(from)u+="&origin="+encodeURIComponent(from);return u};
+const mapURL=q=>"https://www.google.com/maps/search/?api=1&query="+encodeURIComponent(q);
+
+function tk(it){return it.ticket?`<div class="tk"><b>${it.mode==="charter"?"包車":"怎麼去・車票・在哪買・多少錢"}</b>${esc(it.ticket)}</div>`:""}
+function dayItems(d){return items.filter(i=>i.day===d).sort((a,b)=>(a.time||"").localeCompare(b.time||""))}
+
+function renderTabs(){
+  $("tabs").innerHTML=DAYS.map(([d,l,w])=>{const n=dayItems(d).length;return `<button role="tab" type="button" data-d="${d}" aria-selected="${d===day}">${l}<span>週${w}・${n}項</span></button>`}).join("");
+}
+function render(){
+  renderTabs();
+  const info=DAYS.find(x=>x[0]===day);
+  $("dayTitle").textContent=`${info[1]}（${info[2]}）第 ${DAYS.indexOf(info)+1} 天`;
+  $("hotelName").textContent=hotelLabel||hotel||"尚未設定";
+  const list=dayItems(day);
+  if(!list.length){$("list").innerHTML=`<div class="empty">這天還沒有行程<br>按右下角「＋ 新增行程」加一個</div>`;return}
+  let html="",prev=day===DAYS[0][0]?"":hotel,prevName=day===DAYS[0][0]?"":"民宿";
+  if(list.some(i=>i.mode==="charter"))html+=`<div class="charter"><div><strong>今天包車</strong><div class="note">司機行程表是日文的，直接拿手機給司機看</div></div><button type="button" class="btn go" data-drvday="1">司機行程表</button></div>`;
+  list.forEach((it,i)=>{
+    const to=resolve(it.place),m=it.mode||"none",isFlight=m==="flight";
+    const canNav=to&&!isFlight&&m!=="none";
+    const placeTxt=it.place==="飯店"?(hotelLabel||hotel||"民宿"):it.place;
+    let how="";
+    if(canNav||it.ticket){
+      const from=prev?`從「${esc(prevName)}」出發`:"從你目前的位置出發";
+      how=`<div class="how"><div class="how-h">怎麼去這一站</div>
+        ${canNav?`<div class="from">${ICON[m]||ICON.transit}<span>${from}，${esc(MODE[m]||"搭車")}</span></div>`:""}
+        ${it.ticket?`<div class="tkt"><div class="tkt-h">${m==="charter"?"包車":"車票・在哪買・多少錢"}</div>${esc(it.ticket)}</div>`:""}
+        ${canNav?`<a class="btn go wide" target="_blank" rel="noopener" href="${esc(dirURL(prev,to,m))}">${ICON[m]||ICON.transit}打開地圖看路線</a>`:""}
+      </div>`;
+    }
+    const by=it.by&&names[it.by]?`<div class="by">由 ${esc(names[it.by])} 新增</div>`:"";
+    if(i>0)html+=`<div class="arrow" aria-hidden="true">▼</div>`;
+    html+=`<article class="stop m-${esc(m)}">
+      <div class="sh"><span class="num">第 ${i+1} 站</span><span class="tm">${esc(it.time)}</span>${MODE[m]?`<span class="chip">${esc(MODE[m])}</span>`:""}</div>
+      <h3>${esc(it.title)}</h3>
+      ${placeTxt?`<div class="place">地點：${esc(placeTxt)}</div>`:""}
+      ${how}
+      ${it.note?`<div class="nt"><b>注意</b>${esc(it.note)}</div>`:""}
+      <div class="acts">
+        ${it.jp?`<button type="button" class="btn go" data-drv="${esc(it.id)}">給司機看</button>`:""}
+        ${to?`<a class="btn" target="_blank" rel="noopener" href="${esc(dirURL("",to,m==="walking"?"walking":m==="charter"?"charter":"transit"))}">${ICON.me}從我現在位置去</a>`:""}
+        ${to?`<a class="btn" target="_blank" rel="noopener" href="${esc(mapURL(to))}">${ICON.pin}地圖看位置</a>`:""}
+        ${canWrite?`<button type="button" class="btn sm" data-edit="${esc(it.id)}">修改</button><button type="button" class="btn sm red" data-del="${esc(it.id)}">刪除</button>`:""}
+      </div>${by}
+    </article>`;
+    if(to){prev=to;prev&&(prevName=it.title)}
+  });
+  $("list").innerHTML=html;
+  resolveNames();
+}
+async function resolveNames(){
+  if(!user)return;const ids=[...new Set(items.map(i=>i.by).filter(id=>id&&!(id in names)))];
+  if(!ids.length)return;
+  try{const ps=await user.profiles(ids);let ch=false;ids.forEach(id=>{const n=ps?.[id]?.name||"";names[id]=n;if(n)ch=true});if(ch)render()}catch(e){ids.forEach(id=>names[id]="")}
+}
+
+$("tabs").addEventListener("click",e=>{const b=e.target.closest("button[data-d]");if(!b)return;day=b.dataset.d;openId=null;try{localStorage.setItem("osakaDay",day)}catch(_){}render();window.scrollTo({top:$("tabs").offsetTop,behavior:"smooth"})});
+$("list").addEventListener("click",async e=>{
+  if(e.target.closest("a"))return;
+  const dv=e.target.closest("[data-drv]"),dd=e.target.closest("[data-drvday]");
+  if(dv){showDriver([items.find(i=>i.id===dv.dataset.drv)]);return}
+  if(dd){showDriver(dayItems(day).filter(i=>i.jp));return}
+  const ed=e.target.closest("[data-edit]"),dl=e.target.closest("[data-del]");
+  if(ed){openForm(items.find(i=>i.id===ed.dataset.edit));return}
+  if(dl){
+    if(dl.dataset.sure!=="1"){dl.dataset.sure="1";dl.textContent="再按一次確定刪除";setTimeout(()=>{if(dl.isConnected){dl.dataset.sure="";dl.textContent="刪除"}},4000);return}
+    dl.disabled=true;
+    try{await db.collection("items").doc(dl.dataset.del).delete()}catch(err){showErr(err);dl.disabled=false}
+    return}
+
+});
+
+function showDriver(list){
+  list=list.filter(Boolean);
+  const info=DAYS.find(x=>x[0]===day);
+  const multi=list.length>1;
+  $("drvBody").innerHTML=`<h2>${multi?"本日の貸切ルート":"行き先"}　${esc(info[1])}</h2>
+    ${multi?`<p class="hello">よろしくお願いします。本日は下記の順番でお願いします。<br>宿泊先：日居・山 YAMA（西九条駅 徒歩2分）</p>`:`<p class="hello">ここまでお願いします。</p>`}
+    <ol>${list.map(i=>`<li><div class="tm">${esc(i.time)}</div><div class="big">${esc(i.jp)}</div><div class="zh">${esc(i.title)}</div></li>`).join("")}</ol>`;
+  $("drv").classList.add("on");$("drv").scrollTop=0;
+}
+$("drvClose").onclick=()=>$("drv").classList.remove("on");
+function fillDays(){$("fDay").innerHTML=DAYS.map(([d,l,w])=>`<option value="${d}">${l}（${w}）</option>`).join("")}
+function openForm(it){
+  editing=it||null;$("dlgT").textContent=it?"修改行程":"新增行程";
+  $("fDay").value=it?it.day:day;$("fTime").value=it?it.time:"";$("fTitle").value=it?it.title:"";
+  $("fPlace").value=it?it.place||"":"";$("fMode").value=it?it.mode||"transit":"transit";$("fNote").value=it?it.note||"":"";$("fTicket").value=it?it.ticket||"":"";$("fJp").value=it?it.jp||"":"";
+  $("dlg").classList.add("on");setTimeout(()=>$("fTime").focus(),50);
+}
+const close=()=>{$("dlg").classList.remove("on");editing=null};
+$("cancel").onclick=close;$("dlg").addEventListener("click",e=>{if(e.target.id==="dlg")close()});
+$("addBtn").onclick=()=>{if(!db){showStatus("目前無法連線，請在 claude.ai 登入後開啟這個頁面。");return}openForm(null)};
+$("form").addEventListener("submit",async e=>{
+  e.preventDefault();if(!db)return;
+  const data={day:$("fDay").value,time:$("fTime").value,title:$("fTitle").value.trim(),place:$("fPlace").value.trim(),mode:$("fMode").value,note:$("fNote").value.trim(),ticket:$("fTicket").value.trim(),jp:$("fJp").value.trim(),at:Date.now()};
+  if(!data.title||!data.time)return;
+  $("save").disabled=true;
+  try{
+    if(editing){data.by=editing.by||"";await db.collection("items").doc(editing.id).set(data)}
+    else{let id="";try{id=user?await user.id():""}catch(_){}data.by=id||"";await db.collection("items").add(data)}
+    day=data.day;close();
+  }catch(err){showErr(err)}finally{$("save").disabled=false}
+});
+
+$("hotelBtn").onclick=()=>{if(!db){showStatus("目前無法連線，請在 claude.ai 登入後開啟這個頁面。");return}$("hName").value=hotel;$("hdlg").classList.add("on");setTimeout(()=>$("hName").focus(),50)};
+$("hcancel").onclick=()=>$("hdlg").classList.remove("on");
+$("hform").addEventListener("submit",async e=>{e.preventDefault();const v=$("hName").value.trim();if(!v||v===hotel){$("hdlg").classList.remove("on");return}
+  try{await db.doc("trip/settings").set({hotel:v});$("hdlg").classList.remove("on")}catch(err){showErr(err)}});
+document.addEventListener("keydown",e=>{if(e.key==="Escape"){close();$("drv").classList.remove("on");$("hdlg").classList.remove("on")}});
+
+function useSnap(){
+  try{items=JSON.parse($("snap").textContent)}catch(e){items=[]}
+  hotel="西九条駅";hotelLabel="日居・山 YAMA（西九條站步行 2 分）";canWrite=false;
+  $("addBtn").hidden=true;$("hotelBtn").hidden=true;
+  showStatus(window.claude?"目前是「只能看」模式。要新增或修改行程，請行程負責人修改。":"");render();
+}
+function showStatus(t){const s=$("status");if(!t){s.hidden=true;return}s.hidden=false;s.textContent=t}
+function showErr(err){
+  if(err?.code==="invalid_argument"){canWrite=false;$("addBtn").disabled=true;showStatus("你目前只能查看行程。請請行程擁有者把你加為「Contributor（參與者）」以上才能新增或修改。");render()}
+  else if(err?.code==="quota_exceeded")showStatus("行程數量已達上限，請先刪除一些舊項目。");
+  else showStatus("儲存失敗，請稍後再試一次。");
+}
+
+fillDays();render();
+(async()=>{
+  try{db=await claude.use("db");user=await claude.use("user")}catch(e){db=null}
+  if(!db){useSnap();return}
+  try{const w=await user?.can("data.write");if(w===false){canWrite=false;$("addBtn").disabled=true}}catch(_){}
+  let timer=setTimeout(()=>{if(!items.length)useSnap();else showStatus("連線較慢，資料可能還沒更新…")},10000);
+  db.collection("items").onSnapshot(snap=>{
+    items=snap.docs.map(d=>({id:d.id,...d.data()}));
+    if(!snap.metadata.fromCache){clearTimeout(timer);showStatus(canWrite?"":"你目前只能查看行程。")}
+    render();
+  },err=>{clearTimeout(timer);if(!items.length)useSnap();else showStatus("行程連線中斷，請重新整理頁面。")});
+  db.doc("trip/settings").onSnapshot(s=>{hotel=s.exists?String(s.data().hotel||""):"";hotelLabel=s.exists?String(s.data().label||""):"";render()},()=>{});
+})();
+}
+</script>
+</body>
+</html>
